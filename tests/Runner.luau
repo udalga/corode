@@ -25,17 +25,22 @@ local SKIP_MARKER = "\0CorodeSkip:"
 
 local Runner = {}
 
-local function describeValue(value: any): string
+-- Depth-limited, since Corode objects point at each other in cycles.
+local function describeValue(value: any, depth: number?): string
+	local level = depth or 0
 	if type(value) == "string" then
 		return string.format("%q", value)
 	elseif type(value) == "table" then
+		if level >= 2 then
+			return "{ ... }"
+		end
 		local parts = {}
 		for key, item in value do
 			if #parts >= 8 then
 				table.insert(parts, "...")
 				break
 			end
-			table.insert(parts, `{tostring(key)} = {describeValue(item)}`)
+			table.insert(parts, `{tostring(key)} = {describeValue(item, level + 1)}`)
 		end
 		return "{ " .. table.concat(parts, ", ") .. " }"
 	end

@@ -22,11 +22,11 @@ K.Start()
 ```lua
 -- StarterPlayerScripts (a LocalScript)
 local K = require(game.ReplicatedStorage:WaitForChild("Corode"))
-local xp = K.UI.FromValue("XP")
+local xp = K.UI.FromValue("XP", 0)     -- 0 until the server's value arrives
 
 K.UI.Screen("XPBar", {
 	K.UI.Label({ Text = K.UI.Computed(function()
-		return `XP: {xp:Get() or 0}`
+		return `XP: {xp:Get()}`
 	end) }),
 })
 ```
@@ -124,11 +124,11 @@ end)
 LocalScripts use the same name, without options:
 
 ```lua
-local XP = K.Value("XP")
-XP:Get()                   -- yours (nil until the server sends it)
+local XP = K.Value("XP", { Default = 0 })   -- the Default is used until the server's value arrives
+XP:Get()                   -- yours (nil until the server sends it, without a Default)
 XP:Get(otherPlayer)
 XP:OnChanged(function(new, old) end)
-local xp = K.UI.FromValue("XP")
+local xp = K.UI.FromValue("XP", 0)      -- 0 until the value arrives
 ```
 
 A ModuleScript that defines your values can be required from both sides: on the server it creates them, on clients it returns read-only handles.

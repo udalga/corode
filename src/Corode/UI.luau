@@ -27,7 +27,7 @@
 		               Gap = 8, Align = "Center" | "Start" | "End", CellSize = UDim2 (grids)
 
 	Components: Screen, Panel, Label, Button, Image, Bar, ForEach.
-	Data: FromValue("XP"), FromShared("Weather"), FromTimer("Chest"), FromCurrency("Coins"), FromInventory("Backpack"), FromStat("WalkSpeed"), FromHealth(),
+	Data: FromValue("XP"), FromShared("Weather"), FromTimer("Chest"), FromMachine("World"), FromCurrency("Coins"), FromInventory("Backpack"), FromStat("WalkSpeed"), FromHealth(),
 	FromQuests(), FromLeaderboard("Richest"), FromRound().
 	Colors and fonts come from K.UI.Theme, which you can change before building.
 
@@ -48,6 +48,7 @@ end
 local Currency = require(script.Parent.Currency)
 local Global = require(script.Parent.Global)
 local Inventory = require(script.Parent.Inventory)
+local Machine = require(script.Parent.Machine)
 local Quests = require(script.Parent.Quests)
 local Reactive = require(script.Parent.Util.Reactive)
 local Rounds = require(script.Parent.Rounds)
@@ -494,6 +495,7 @@ local statStates: { [string]: any } = {}
 local valueStates: { [string]: any } = {}
 local sharedStates: { [string]: any } = {}
 local timerStates: { [string]: any } = {}
+local machineStates: { [string]: any } = {}
 local healthState = nil
 local questsState = nil
 local leaderboardStates: { [string]: any } = {}
@@ -528,8 +530,9 @@ function UI.FromInventory(name: string)
 end
 
 -- A State that always holds one of your K.Value values (a name or the value itself).
-function UI.FromValue(value: any)
-	local handle = if type(value) == "string" then Value.Get(value) else value
+-- `default` is used until the server's value arrives: K.UI.FromValue("Ore", 0).
+function UI.FromValue(value: any, default: any?)
+	local handle = if type(value) == "string" then Value.Define(value, if default ~= nil then { Default = default } else nil) else value
 	if type(handle) ~= "table" or type(handle.Name) ~= "string" then
 		Errors.raise(`K.UI.FromValue expected a value name or a K.Value, but got {Errors.describe(value)}.`)
 	end
@@ -577,6 +580,30 @@ function UI.FromTimer(name: string)
 			end
 		end)
 		timerStates[name] = state
+	end
+	return state
+end
+
+-- A State holding a named K.Machine: { State, TimeLeft (whole seconds) }.
+function UI.FromMachine(name: string)
+	Errors.expect(name, "string", "the machine's name", "K.UI.FromMachine")
+	local state = machineStates[name]
+	if state == nil then
+		local machine = Machine.Get(name)
+		local function snapshot()
+			return { State = machine:State(), TimeLeft = math.ceil(machine:TimeLeft()) }
+		end
+		state = Reactive.State(snapshot())
+		task.spawn(function()
+			while true do
+				local new, old = snapshot(), state:Peek()
+				if new.State ~= old.State or new.TimeLeft ~= old.TimeLeft then
+					state:Set(new)
+				end
+				task.wait(0.2)
+			end
+		end)
+		machineStates[name] = state
 	end
 	return state
 end

@@ -45,6 +45,7 @@ export default defineConfig({
             { text: 'Machines', link: '/blocks/machines' },
             { text: 'Customizing systems', link: '/blocks/customizing' },
             { text: 'Recipes', link: '/blocks/recipes' },
+            { text: 'Sample game: Miner', link: '/blocks/sample-miner' },
           ],
         },
         {

@@ -24,7 +24,7 @@
 		end)
 
 	LocalScript (the same name, no options needed):
-		local XP = K.Value("XP")
+		local XP = K.Value("XP", { Default = 0 })   -- the Default is used until the value arrives
 		XP:Get()                               -- yours, or XP:Get(otherPlayer)
 		XP:OnChanged(function(new, old) end)
 		local xp = K.UI.FromValue("XP")        -- a State for your UI
@@ -438,11 +438,16 @@ local function readAttribute(handle, player: Player): any
 	return value
 end
 
--- Get() for yourself, or Get(otherPlayer). Nil until the server has sent it.
+-- Get() for yourself, or Get(otherPlayer). Until the server has sent it, the
+-- Default given on this client (nil without one).
 function ClientMethods.Get(handle, player: Player?): any
 	local target = player or Players.LocalPlayer
 	checkPlayer(target, `{handle.Name}:Get()`)
-	return readAttribute(handle, target :: Player)
+	local value = readAttribute(handle, target :: Player)
+	if value == nil and handle._hasFallback then
+		return handle._fallback
+	end
+	return value
 end
 
 -- callback(new, old) whenever your own value changes.
@@ -527,6 +532,9 @@ local function newHandle(family: Family, name: string, settings: Settings?)
 		-- false on clients, which only read the replicated value.
 		_settings = settings or false,
 		_overrides = {},
+		-- Clients: what Get returns until the server's value arrives.
+		_fallback = false,
+		_hasFallback = false,
 	}
 	return Methods.build(handle, if IS_SERVER then ServerMethods else ClientMethods, `{family.Label} "{name}"`)
 end
@@ -539,6 +547,12 @@ local function define(family: Family, name: string, options: { [string]: any }?,
 		if existing == nil then
 			existing = newHandle(family, name, nil)
 			family.Handles[name] = existing
+		end
+		-- The same definition can be shared with the server; its Default is used
+		-- until the server's value arrives.
+		if type(options) == "table" and options.Default ~= nil then
+			existing._fallback = options.Default
+			existing._hasFallback = true
 		end
 		return existing
 	end

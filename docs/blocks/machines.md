@@ -61,6 +61,8 @@ Game:OnChanged(function(state)
 end)
 ```
 
+For UI, `K.UI.FromMachine("Game")` is a State holding `{ State, TimeLeft }` (whole seconds) that updates on its own.
+
 ## States
 
 Each state is a table. Everything in it is optional:
