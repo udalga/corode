@@ -9,3 +9,5 @@ docs/.vitepress/dist/
 docs/api/
 docs/.vitepress/api-sidebar.json
 .tools/
+*.rbxl.lock
+*.rbxlx.lock
