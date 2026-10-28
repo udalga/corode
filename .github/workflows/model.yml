@@ -29,9 +29,8 @@ jobs:
       - name: Build
         run: |
           rojo build default.project.json -o Corode.rbxm
-          # Only checks that the place project builds; it holds the demo scripts, not the demo's parts.
+          # Only checks that the place project builds (the local demo scripts are optional).
           rojo build place.project.json -o "$RUNNER_TEMP/place.rbxl"
-          rojo build samples/miner.project.json -o "$RUNNER_TEMP/Miner.rbxl"
 
       - uses: actions/upload-artifact@v4
         with:

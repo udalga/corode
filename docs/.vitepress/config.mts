@@ -10,11 +10,16 @@ export default defineConfig({
   base: '/corode/',
   cleanUrls: true,
   lastUpdated: false,
-  head: [['meta', { name: 'theme-color', content: '#00a2ff' }]],
+  head: [
+    ['meta', { name: 'theme-color', content: '#8000ff' }],
+    // head links aren't given the base path automatically
+    ['link', { rel: 'icon', type: 'image/png', href: '/corode/logo.png' }],
+  ],
   markdown: {
     theme: { light: 'github-light', dark: 'github-dark' },
   },
   themeConfig: {
+    logo: '/logo.png',
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Systems', link: '/systems/currency-data' },
@@ -45,7 +50,6 @@ export default defineConfig({
             { text: 'Machines', link: '/blocks/machines' },
             { text: 'Customizing systems', link: '/blocks/customizing' },
             { text: 'Recipes', link: '/blocks/recipes' },
-            { text: 'Sample game: Miner', link: '/blocks/sample-miner' },
           ],
         },
         {

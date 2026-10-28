@@ -11,3 +11,6 @@ docs/.vitepress/api-sidebar.json
 .tools/
 *.rbxl.lock
 *.rbxlx.lock
+# Example and sample code stays on your computer, not on GitHub.
+examples/
+samples/

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/public/logo.png" alt="Corode" width="128"></p>
+
 # Corode
 
 An all-in-one Roblox framework that reads like plain English: currencies, data, items, combat, NPCs, quests, shops, global leaderboards, anti-cheat, admin commands, analytics, UI and input. Every system is customizable from code, and the server is always in charge.

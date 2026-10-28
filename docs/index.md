@@ -4,6 +4,9 @@ layout: home
 hero:
   name: Corode
   text: Roblox games in plain words
+  image:
+    src: /logo.png
+    alt: Corode
   tagline: One framework for currencies, items, combat, NPCs, quests, shops, UI and more. Everything is code you control, and the server is always in charge.
   actions:
     - theme: brand

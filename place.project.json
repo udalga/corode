@@ -12,7 +12,9 @@
     },
     "ServerScriptService": {
       "CorodeDemo": {
-        "$path": "examples/CorodeDemo.server.luau"
+        "$path": {
+          "optional": "examples/CorodeDemo.server.luau"
+        }
       },
       "CorodeTestHook": {
         "$path": "tests/TestHook.server.luau"
@@ -26,7 +28,9 @@
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "CorodeHUD": {
-          "$path": "examples/CorodeHUD.client.luau"
+          "$path": {
+            "optional": "examples/CorodeHUD.client.luau"
+          }
         }
       }
     }

@@ -8,10 +8,9 @@ Corode's source lives in this repository as `.luau` files. [Rojo](https://rojo.s
 | --- | --- |
 | `src/Corode/` | The framework. `init.luau` is the `Corode` ModuleScript, every other file is a child of it. |
 | `src/Corode/ClientBoot.server.luau` | A Script whose `RunContext` is set to `Client` by `ClientBoot.meta.json`, so it runs on every device from ReplicatedStorage. |
-| `examples/` | The demo's server Script and HUD LocalScript. |
 | `tests/` | The test runner and specs, synced to `ServerStorage.CorodeTests`. |
 | `default.project.json` | Builds Corode as a model (`Corode.rbxm`). |
-| `place.project.json` | Syncs Corode and the demo scripts into a place while you work. |
+| `place.project.json` | Syncs Corode and the tests into a place while you work. Local scripts in `examples/` (kept out of git) are synced too when they exist. |
 | `docs/` | This site. `docs/api/` is generated, so don't edit it by hand. |
 
 ## Set up
