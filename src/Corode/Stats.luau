@@ -25,6 +25,12 @@
 	Define options: Base (0), Min (0), Max, Saved (false), Apply (a Humanoid
 	property name, or function(owner, value, character)), Formula.
 	Modifier options: Id, Add, Multiply, Duration, Stack ("Refresh", "Stack" or "Ignore").
+
+	Hooks: K.Stats.Before("Compute", function(ctx) ... end) changes ctx.Value, a stat
+	after its base and modifiers (ctx.Owner, ctx.Stat; don't wait in it). "AddModifier"
+	(ctx.Add, Multiply, Duration, Id, Stack) and "SetBase" (ctx.Value, ctx.Old) can
+	change or ctx:Cancel() those operations. When something a Compute hook reads
+	changes, call K.Stats.Refresh(player) to work its stats out again.
 ]]
 
 local HttpService = game:GetService("HttpService")
@@ -34,6 +40,7 @@ local RunService = game:GetService("RunService")
 local Data = require(script.Parent.Data)
 local Errors = require(script.Parent.Util.Errors)
 local Guard = require(script.Parent.Util.Guard)
+local Hooks = require(script.Parent.Hooks)
 local Signal = require(script.Parent.Util.Signal)
 
 local IS_SERVER = RunService:IsServer()
@@ -144,6 +151,10 @@ end
 
 local compute
 
+-- Before("Compute") hooks change ctx.Value, the stat after its base and modifiers.
+-- They run every time a stat is worked out, so they must not wait.
+local computeHooks = Hooks.new("Stats.Compute")
+
 -- Works out a stat from its base (or formula) and modifiers.
 function compute(entity: Entity, name: string): number
 	local definition = definitions[name]
@@ -177,7 +188,13 @@ function compute(entity: Entity, name: string): number
 		add += modifier.Add
 		multiply *= modifier.Multiply
 	end
-	return math.clamp((base + add) * multiply, definition.Min, definition.Max)
+	local _, ctx = computeHooks:Run({ Owner = entity.Owner, Stat = name, Value = (base + add) * multiply })
+	local value = ctx.Value
+	if type(value) ~= "number" or not Guard.isFinite(value) then
+		Errors.warnOnce(`stat-hook:{name}`, `A K.Stats "Compute" hook set ctx.Value to {Errors.describe(value)} for stat "{name}".`)
+		value = (base + add) * multiply
+	end
+	return math.clamp(value, definition.Min, definition.Max)
 end
 
 local function applyStat(entity: Entity, definition: Definition, value: number)
@@ -373,6 +390,25 @@ function Stats.GetBase(target: Instance, name: string): number
 	return baseOf(getEntity(owner), getDefinition(name, "K.Stats.GetBase"))
 end
 
+local setBaseHooks = Hooks.new("Stats.SetBase", function(ctx)
+	local value = ctx.Value
+	if type(value) ~= "number" or not Guard.isFinite(value) then
+		Errors.warn(`A K.Stats "SetBase" hook set ctx.Value to {Errors.describe(value)}, so the change was cancelled.`)
+		return false
+	end
+	local owner, name = ctx.Owner, ctx.Stat
+	local definition = definitions[name]
+	local entity = getEntity(owner)
+	local profile = if definition.Saved and owner:IsA("Player") then Data._getProfile(owner :: Player) else nil
+	if profile then
+		profile.Stats[name] = value
+	else
+		entity.Bases[name] = value
+	end
+	refresh(entity)
+	return true
+end)
+
 function Stats.SetBase(target: Instance, name: string, value: number)
 	requireServer("K.Stats.SetBase")
 	local owner = checkOwner(target, "K.Stats.SetBase")
@@ -383,14 +419,7 @@ function Stats.SetBase(target: Instance, name: string, value: number)
 	if definition.Formula then
 		Errors.raise(`Stat "{name}" is worked out by its Formula, so its base can't be set.`)
 	end
-	local entity = getEntity(owner)
-	local profile = if definition.Saved and owner:IsA("Player") then Data._getProfile(owner :: Player) else nil
-	if profile then
-		profile.Stats[name] = value
-	else
-		entity.Bases[name] = value
-	end
-	refresh(entity)
+	setBaseHooks:Run({ Owner = owner, Stat = name, Value = value, Old = baseOf(getEntity(owner), definition) })
 end
 
 function Stats.AddBase(target: Instance, name: string, amount: number)
@@ -403,7 +432,11 @@ function Stats.AddBase(target: Instance, name: string, amount: number)
 	Stats.SetBase(owner, name, baseOf(getEntity(owner), definition) + amount)
 end
 
+-- Hooks decide whether a modifier goes on, and can change it (ctx.Add, ctx.Multiply, ctx.Duration).
+local addModifierHooks = Hooks.new("Stats.AddModifier")
+
 -- Adds a buff or debuff. Returns its Id, which K.Stats.RemoveModifier takes.
+-- If a hook cancels it, nothing is added (the Id is still returned).
 function Stats.AddModifier(target: Instance, name: string, options: { [string]: any }?): string
 	requireServer("K.Stats.AddModifier")
 	local owner = checkOwner(target, "K.Stats.AddModifier")
@@ -428,6 +461,24 @@ function Stats.AddModifier(target: Instance, name: string, options: { [string]: 
 	end
 
 	local id = settings.Id or HttpService:GenerateGUID(false)
+	local allowed, ctx = addModifierHooks:Run({
+		Owner = owner,
+		Stat = name,
+		Id = id,
+		Add = add,
+		Multiply = multiply,
+		Duration = duration,
+		Stack = stack,
+	})
+	if not allowed then
+		return id
+	end
+	add, multiply, duration = ctx.Add, ctx.Multiply, ctx.Duration
+	if not Guard.isFinite(add) or not Guard.isFinite(multiply) or multiply < 0
+		or (duration ~= nil and (not Guard.isFinite(duration) or duration <= 0)) then
+		Errors.warn(`A K.Stats "AddModifier" hook left Add, Multiply or Duration invalid, so the modifier wasn't added.`)
+		return id
+	end
 	local entity = getEntity(owner)
 	local list = entity.Modifiers[name]
 	if list == nil then
@@ -544,5 +595,42 @@ if IS_SERVER then
 		end
 	end)
 end
+
+-- Works every stat out again, for one player or NPC or for everyone. Call it when
+-- something a Compute hook reads changes (say a player becomes VIP).
+function Stats.Refresh(target: Instance?)
+	requireServer("K.Stats.Refresh")
+	if target ~= nil then
+		refresh(getEntity(checkOwner(target, "K.Stats.Refresh")))
+		return
+	end
+	for _, entity in table.clone(entities) do
+		refresh(entity)
+	end
+end
+
+-- Stats are worked out ahead of time, so adding or removing a Compute hook
+-- works every stat out again right away.
+local computeChanges = {}
+for _, method in { "Before", "Use" } do
+	computeChanges[method] = function(_, callback, priority)
+		local remove = computeHooks[method](computeHooks, callback, priority)
+		Stats.Refresh()
+		return function()
+			remove()
+			Stats.Refresh()
+		end
+	end
+end
+function computeChanges.After(_, callback)
+	return computeHooks:After(callback)
+end
+function computeChanges.Override(_, callback)
+	computeHooks:Override(callback)
+	Stats.Refresh()
+end
+
+-- K.Stats.Before("Compute" | "AddModifier" | "SetBase", function(ctx) ... end) and friends.
+Hooks._expose(Stats, "K.Stats", { Compute = computeChanges, AddModifier = addModifierHooks, SetBase = setBaseHooks })
 
 return Errors.strict(Stats, "K.Stats")

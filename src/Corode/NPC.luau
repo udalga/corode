@@ -41,6 +41,10 @@
 	npc methods: MoveTo, Stop, Wander, Face, Attack, NearestPlayer, CanSee, DistanceTo,
 	             SetState, StateTime, OnDeath, Destroy
 
+	K.NPC.Spawned:Connect(function(npc) end) runs for every new NPC before its
+	brain starts, and K.NPC.Died:Connect(function(npc, killer) end) when one dies.
+	Damage NPCs deal and take goes through K.Combat's hooks.
+
 	NPCs are simulated by the server (never a player's device), so exploiters
 	can't fling or teleport them. Brains run a few times per second, all from
 	one shared loop. Server Scripts only.
@@ -94,6 +98,8 @@ local SpawnerMethods = {}
 
 -- Fires with (npc, killer?) when any NPC dies.
 NPC.Died = Signal.new()
+-- Fires with (npc) for every new NPC, before its brain starts: adjust it from any script.
+NPC.Spawned = Signal.new()
 NPC.Behaviors = {}
 
 local active: { [Model]: any } = {}
@@ -616,6 +622,7 @@ local function control(model: Model, options: { [string]: any }, functionName: s
 		npc.Dead = true
 		npc._moveToken += 1
 	end)
+	NPC.Spawned:Fire(npc)
 	if npc._brain then
 		enter(npc, npc._brain.Initial)
 	end

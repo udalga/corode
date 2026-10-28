@@ -89,6 +89,39 @@ function Hooks.new(name: string, operation: ((any) -> boolean?)?)
 	return Methods.build(hooks, HookMethods, `Hooks "{name}"`)
 end
 
+-- For Corode's systems: adds Before, After, Use, Middleware and Override(operation, ...)
+-- to `target`, one K.Hooks per operation, like K.Rewards.Before("Give", fn).
+function Hooks._expose(target: { [string]: any }, label: string, operations: { [string]: any })
+	local names = {}
+	for name in operations do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	local function get(operation: any, functionName: string)
+		local hooks = operations[operation]
+		if hooks == nil then
+			Errors.raise(
+				`{functionName}: {Errors.quote(operation)} isn't something {label} can hook.`,
+				Errors.didYouMean(tostring(operation), names, { `Operations: {table.concat(names, ", ")}` })
+			)
+		end
+		return hooks
+	end
+	target.Before = function(operation: string, callback: (any) -> (), priority: number?): () -> ()
+		return get(operation, `{label}.Before`):Before(callback, priority)
+	end
+	target.After = function(operation: string, callback: (any) -> ()): () -> ()
+		return get(operation, `{label}.After`):After(callback)
+	end
+	target.Use = function(operation: string, callback: (any, () -> ()) -> (), priority: number?): () -> ()
+		return get(operation, `{label}.Use`):Use(callback, priority)
+	end
+	target.Middleware = target.Use
+	target.Override = function(operation: string, callback: (any) -> boolean?)
+		get(operation, `{label}.Override`):Override(callback)
+	end
+end
+
 return setmetatable(Hooks, {
 	__call = function(_, name: string, operation: ((any) -> boolean?)?)
 		return Hooks.new(name, operation)

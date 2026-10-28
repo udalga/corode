@@ -21,6 +21,13 @@
 		local ok, message = K.Rewards.Redeem(textBox.Text)
 		K.Rewards.DailyStatus()     --> { Streak = 3, Ready = false }
 
+	Rules for every reward (daily, codes, quests, rounds...) go in one hook:
+		K.Rewards.Before("Give", function(ctx)
+			if ctx.Source == "Daily" and isWeekend() then
+				ctx.Bundle.Coins = (ctx.Bundle.Coins or 0) * 2
+			end
+		end)
+
 	Time is always the server's, codes are only known by the server, and each
 	player can try one code per second, so codes can't be guessed or replayed.
 ]]
@@ -38,6 +45,7 @@ local Items = require(script.Parent.Items)
 local Net = require(script.Parent.Net)
 local Notify = require(script.Parent.Notify)
 local PlayersModule = require(script.Parent.Players)
+local Hooks = require(script.Parent.Hooks)
 local Signal = require(script.Parent.Util.Signal)
 local Stats = require(script.Parent.Stats)
 
@@ -186,17 +194,33 @@ function Rewards.Fits(player: Player, bundle: { [string]: any }): (boolean, stri
 	return true, nil
 end
 
--- Gives a reward bundle, all or nothing: if it can't all be given (like a full
--- inventory), nothing is given and it returns false with a reason.
-function Rewards.Give(player: Player, bundle: { [string]: any }, source: string?): (boolean, string?)
-	requireServer("K.Rewards.Give")
-	Errors.expect(player, "Player", "the player", "K.Rewards.Give")
-	Rewards.check(bundle, "K.Rewards.Give")
-	local fits, why = Rewards.Fits(player, bundle)
-	if not fits then
-		return false, why
+local function copyBundle(value: any): any
+	if type(value) ~= "table" then
+		return value
 	end
-	local reason = source or "Reward"
+	local copy = {}
+	for key, child in value do
+		copy[key] = copyBundle(child)
+	end
+	return copy
+end
+
+-- Every reward goes through here, so one hook reaches daily rewards, codes,
+-- quests, playtime, rounds, shop rewards and When chains alike (see ctx.Source).
+local giveHooks = Hooks.new("Rewards.Give", function(ctx)
+	local bundle = ctx.Bundle
+	local valid, problem = pcall(Rewards.check, bundle, "A K.Rewards hook")
+	if not valid then
+		Errors.warn(`A K.Rewards hook left a reward that can't be given: {problem}`)
+		ctx.Reason = "That reward can't be given right now."
+		return false
+	end
+	local fits, why = Rewards.Fits(ctx.Player, bundle)
+	if not fits then
+		ctx.Reason = why
+		return false
+	end
+	local player, reason = ctx.Player, ctx.Source
 	for key, amount in bundle do
 		if BUNDLE_FIELDS[key] == nil and amount > 0 then
 			Currency.Add(player, key, amount, reason)
@@ -221,8 +245,37 @@ function Rewards.Give(player: Player, bundle: { [string]: any }, source: string?
 		Notify.Say(player, bundle.Message)
 	end
 	Rewards.Given:Fire(player, bundle, reason)
-	return true, nil
+	return true
+end)
+
+-- Gives a bundle through the hooks. Returns (given, reason, the bundle that was given).
+local function give(player: Player, bundle: { [string]: any }, source: string?): (boolean, string?, { [string]: any })
+	local ok, ctx = giveHooks:Run({
+		Player = player,
+		-- A copy, so hooks can change it without changing your definitions.
+		Bundle = copyBundle(bundle),
+		Source = source or "Reward",
+	})
+	if ok then
+		return true, nil, ctx.Bundle
+	end
+	return false, if type(ctx.Reason) == "string" then ctx.Reason else "That reward can't be given right now.", ctx.Bundle
 end
+
+-- Gives a reward bundle, all or nothing: if it can't all be given (like a full
+-- inventory), nothing is given and it returns false with a reason.
+function Rewards.Give(player: Player, bundle: { [string]: any }, source: string?): (boolean, string?)
+	requireServer("K.Rewards.Give")
+	Errors.expect(player, "Player", "the player", "K.Rewards.Give")
+	Rewards.check(bundle, "K.Rewards.Give")
+	local given, why = give(player, bundle, source)
+	return given, why
+end
+
+-- Rules for every reward: K.Rewards.Before("Give", function(ctx) ... end).
+-- ctx: Player, Bundle (a copy you can change), Source ("Daily", "Code", "Quest",
+-- "Playtime", "Shop", "Round", "When" or your own), Cancel(reason).
+Hooks._expose(Rewards, "K.Rewards", { Give = giveHooks })
 
 ------------------------------------------------------------------------------
 -- Daily rewards
@@ -258,13 +311,13 @@ local function claimDaily(player: Player): (boolean, string)
 	-- Marked as claimed before giving (hooks inside Give may wait, and a second
 	-- request must not get through meanwhile), and undone if it couldn't be given.
 	state.Daily.Streak, state.Daily.LastDay = streak, day
-	local given, why = Rewards.Give(player, bundle, "Daily")
+	local given, why, givenBundle = give(player, bundle, "Daily")
 	if not given then
 		state.Daily.Streak, state.Daily.LastDay = previousStreak, previousDay
 		return false, `Today's reward is waiting: {why}`
 	end
 	publishDaily(player)
-	local message = `Day {streak} reward: {Rewards.Describe(bundle)}`
+	local message = `Day {streak} reward: {Rewards.Describe(givenBundle)}`
 	Notify.Say(player, message)
 	return true, message
 end
@@ -341,12 +394,12 @@ local function redeem(player: Player, input: string): (boolean, string)
 	-- Marked as used before giving (hooks inside Give may wait, and a second request
 	-- must not get through meanwhile), and undone if it couldn't be given.
 	state.Codes[code] = true
-	local given, why = Rewards.Give(player, entry.Bundle, "Code")
+	local given, why, givenBundle = give(player, entry.Bundle, "Code")
 	if not given then
 		state.Codes[code] = nil
 		return false, why or "The code couldn't be redeemed right now."
 	end
-	return true, entry.Message or `Code redeemed: {Rewards.Describe(entry.Bundle)}`
+	return true, entry.Message or `Code redeemed: {Rewards.Describe(givenBundle)}`
 end
 
 -- Adds a code players can redeem once each. Codes ignore case and spaces.
