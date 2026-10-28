@@ -37,7 +37,10 @@ export default defineConfig({
         },
         {
           text: 'Building blocks',
-          items: [{ text: 'Values', link: '/blocks/values' }],
+          items: [
+            { text: 'Values', link: '/blocks/values' },
+            { text: 'Actions and Hooks', link: '/blocks/actions' },
+          ],
         },
         {
           text: 'Gameplay',

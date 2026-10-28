@@ -28,6 +28,9 @@
 		K.When(workspace.Chest).Triggered():Once():Reward({ Coins = 100, Items = { Sword = 1 } })
 		K.When.QuestCompleted("Tutorial"):Say("Now go explore!")
 
+	Your own actions (K.Action): if one fails, the player sees why and the chain stops.
+		K.When(workspace.Anvil).Triggered():Action("Upgrade", "Sword")
+
 	Analytics:
 		K.When(workspace.AppleTree).Triggered():GiveItem("Apple"):Step("Tutorial", "PickedApple")
 
@@ -57,6 +60,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
+local Action = require(script.Parent.Action)
 local Analytics = require(script.Parent.Analytics)
 local Badges = require(script.Parent.Badges)
 local Combat = require(script.Parent.Combat)
@@ -238,6 +242,24 @@ function Chain.Take(chain, name: string, amount: number?, failMessage: string?)
 		local ok = Currency.Take(player, name, value, "When")
 		if not ok and failMessage then
 			Notify.Say(player, fill(failMessage, player))
+		end
+		return ok
+	end)
+end
+
+-- Runs one of your K.Action actions for the player, with its hooks. If it fails,
+-- the player is told why and the chain stops.
+function Chain.Action(chain, name: string, ...: any)
+	requireServer("Action")
+	local action = Action.Get(name)
+	local args = table.pack(...)
+	return addStep(chain, function(player)
+		if player == nil then
+			return false
+		end
+		local ok, result = action:Run(player, table.unpack(args, 1, args.n))
+		if not ok then
+			Notify.Say(player, tostring(result))
 		end
 		return ok
 	end)

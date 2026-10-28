@@ -18,7 +18,8 @@
 
 	LocalScripts can require Corode too (K.Start() is optional there).
 
-	Systems:   K.When, K.Value, K.Currency, K.Leaderstats, K.Items, K.Inventory, K.Stats, K.Combat,
+	Blocks:    K.Value, K.Action, K.Hooks
+	Systems:   K.When, K.Currency, K.Leaderstats, K.Items, K.Inventory, K.Stats, K.Combat,
 	           K.NPC, K.Quests, K.Rewards, K.Rounds, K.Teams, K.Shop, K.Global, K.AntiCheat, K.Admin, K.Analytics,
 	           K.Data, K.Players, K.Net, K.Notify, K.Badges, K.Motion, K.Timing, K.Guard,
 	           K.Format, K.Signal, K.Trove
@@ -35,6 +36,7 @@ local Guard = require(script.Util.Guard)
 local Signal = require(script.Util.Signal)
 local Trove = require(script.Util.Trove)
 
+local Action = require(script.Action)
 local Admin = require(script.Admin)
 local Analytics = require(script.Analytics)
 local AntiCheat = require(script.AntiCheat)
@@ -44,6 +46,7 @@ local Config = require(script.Config)
 local Currency = require(script.Currency)
 local Data = require(script.Data)
 local Global = require(script.Global)
+local Hooks = require(script.Hooks)
 local Input = require(script.Input)
 local Inventory = require(script.Inventory)
 local Items = require(script.Items)
@@ -70,6 +73,7 @@ local START_REMINDER_DELAY = 10
 local Corode = {
 	Version = "0.10.0",
 
+	Action = Action,
 	Admin = Admin,
 	Analytics = Analytics,
 	AntiCheat = AntiCheat,
@@ -80,6 +84,7 @@ local Corode = {
 	Format = Format,
 	Global = Global,
 	Guard = Guard,
+	Hooks = Hooks,
 	Input = Input,
 	Inventory = Inventory,
 	Items = Items,

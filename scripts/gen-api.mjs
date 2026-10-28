@@ -10,7 +10,7 @@ const SIDEBAR = join(ROOT, 'docs', '.vitepress', 'api-sidebar.json')
 
 // Modules exposed on K, with the file they live in. Internal helpers are left out.
 const MODULES = [
-  ['When', 'When'], ['Value', 'Value'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
+  ['When', 'When'], ['Value', 'Value'], ['Action', 'Action'], ['Hooks', 'Hooks'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
   ['Items', 'Items'], ['Inventory', 'Inventory'], ['Stats', 'Stats'], ['Combat', 'Combat'],
   ['NPC', 'NPC'], ['Quests', 'Quests'], ['Rewards', 'Rewards'], ['Rounds', 'Rounds'], ['Teams', 'Teams'], ['Shop', 'Shop'],
   ['Global', 'Global'], ['AntiCheat', 'AntiCheat'], ['Admin', 'Admin'], ['Analytics', 'Analytics'],
@@ -28,6 +28,8 @@ const METHOD_OWNERS = {
 // Method tables whose meaning depends on the module they're in.
 const MODULE_METHOD_OWNERS = {
   Value: { ServerMethods: 'value', ClientMethods: null },
+  Action: { ServerMethods: 'action', ClientMethods: 'action' },
+  Hooks: { HookMethods: 'hooks' },
 }
 
 const escapeText = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -70,10 +72,10 @@ function parse(name, file) {
     const match = /^function (\w+)\./.exec(line)
     if (match) prefixCounts[match[1]] = (prefixCounts[match[1]] ?? 0) + 1
   }
-  const owner = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])
-    .map(([prefix]) => prefix).find((prefix) => !(prefix in METHOD_OWNERS) || prefix === name) ?? name
-
   const owners = { ...METHOD_OWNERS, ...(MODULE_METHOD_OWNERS[name] ?? {}) }
+  const owner = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])
+    .map(([prefix]) => prefix).find((prefix) => !(prefix in owners) || prefix === name) ?? name
+
   const functions = []
   const methods = {}
   const events = []
