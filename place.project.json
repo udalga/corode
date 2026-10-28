@@ -1,5 +1,8 @@
 {
   "name": "Corode Demo",
+  "globIgnorePaths": [
+    "tests/TestHook.server.luau"
+  ],
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
@@ -10,6 +13,14 @@
     "ServerScriptService": {
       "CorodeDemo": {
         "$path": "examples/CorodeDemo.server.luau"
+      },
+      "CorodeTestHook": {
+        "$path": "tests/TestHook.server.luau"
+      }
+    },
+    "ServerStorage": {
+      "CorodeTests": {
+        "$path": "tests"
       }
     },
     "StarterPlayer": {
