@@ -1,0 +1,13 @@
+{
+  "name": "CorodeCI",
+  "globIgnorePaths": ["tests/TestHook.server.luau"],
+  "tree": {
+    "$className": "Folder",
+    "Corode": {
+      "$path": "src/Corode"
+    },
+    "CorodeTests": {
+      "$path": "tests"
+    }
+  }
+}

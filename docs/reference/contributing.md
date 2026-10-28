@@ -50,6 +50,24 @@ The summary appears in the Output and in the folder's `RunResult` attribute. Put
 
 Why the attribute? The command bar has its own copy of every module, so `require(Corode)` there gets a Corode that never started. `tests/TestHook.server.luau` (synced as `ServerScriptService.CorodeTestHook`) runs the tests inside the game instead, with the real players. It does nothing outside Studio.
 
+**On every push.** GitHub Actions runs the tests on Roblox's own servers through [Open Cloud Luau execution](https://create.roblox.com/docs/cloud/reference/features/luau-execution). It builds `tests.project.json` (this commit's Corode plus the tests) into a model, sends it as the task's binary input, and `scripts/cloud-test-task.luau` swaps it into the place for that task only. Nothing is published and the place never changes. There are no players there, so tests that need one are skipped; run those in Studio.
+
+To turn it on once:
+
+1. In the [Creator Dashboard](https://create.roblox.com/dashboard/credentials), create an API key named "Corode CI".
+2. Under **Access Permissions**, add **luau-execution-sessions**, pick the Corode experience and allow **Write**. Nothing else is needed.
+3. Under **Security**, add `0.0.0.0/0` to the IP addresses, since GitHub's runners change addresses.
+4. Save the key as the repository secret `ROBLOX_API_KEY` (GitHub → Settings → Secrets and variables → Actions).
+
+Until the secret exists, the test job just notes that it was skipped. A release is only made when the tests didn't fail.
+
+To run them from your own computer instead:
+
+```sh
+rojo build tests.project.json -o CorodeCI.rbxm
+ROBLOX_API_KEY=... ROBLOX_UNIVERSE_ID=10773475257 ROBLOX_PLACE_ID=132170386245225 node scripts/run-cloud-tests.mjs CorodeCI.rbxm
+```
+
 **Writing them.** Corode's definitions are global and can't be undone, so:
 
 - Name everything with `Helpers.unique("Coins")`, which never repeats.
