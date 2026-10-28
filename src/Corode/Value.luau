@@ -1,0 +1,645 @@
+--[[
+	Value
+	One value per player (XP, level, a title, a setting...) that saves, reaches
+	clients and follows your rules. K.Currency is built on it.
+
+	Server Script:
+		local XP = K.Value("XP", { Default = 0, Min = 0 })
+		local Title = K.Value("Title", { Default = "Rookie", Validate = function(title)
+			return #title <= 20, "Titles are 20 letters at most"
+		end })
+
+		XP:Add(player, 25)
+		XP:Take(player, 10)                    -- fails if it would go below Min
+		XP:Set(player, 0)
+		XP:Get(player)
+		XP:OnChanged(function(player, new, old) end)
+
+		-- Rules for one value ("Set", "Add" or "Take"):
+		XP:Before("Add", function(ctx)
+			ctx.Amount *= 2                    -- double XP
+		end)
+		XP:After("Add", function(ctx)
+			if ctx.New >= 100 then ... end     -- level up
+		end)
+
+	LocalScript (the same name, no options needed):
+		local XP = K.Value("XP")
+		XP:Get()                               -- yours, or XP:Get(otherPlayer)
+		XP:OnChanged(function(new, old) end)
+		local xp = K.UI.FromValue("XP")        -- a State for your UI
+
+	Options: Default (0; a number, text or true/false, which sets the type),
+	Min and Max (numbers), Integer (false), Saved (true), Replicate (true: every
+	client can read it, like leaderstats), MaxLength (200, for text) and
+	Validate (function(value, player) -> ok, reason).
+
+	ctx fields: Player, Value (the name), Amount (to add, take, or the new value
+	for Set), Source, Old, New, Cancel(reason), Commit(value).
+	Only the server changes values; clients can only read them.
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local Data = require(script.Parent.Data)
+local Errors = require(script.Parent.Util.Errors)
+local Guard = require(script.Parent.Util.Guard)
+local Methods = require(script.Parent.Util.Methods)
+local Pipeline = require(script.Parent.Util.Pipeline)
+local Signal = require(script.Parent.Util.Signal)
+
+local IS_SERVER = RunService:IsServer()
+local READY_ATTRIBUTE = "CorodeReady"
+local NAME_PATTERN = "^%a[%w_]*$"
+local MAX_NAME_LENGTH = 40
+-- Above this, numbers lose precision.
+local MAX_SAFE_INTEGER = 2 ^ 53
+local DEFAULT_MAX_LENGTH = 200
+local OPERATIONS = { "Set", "Add", "Take" }
+local OPTIONS = {
+	Default = "number|string|boolean",
+	Min = "number",
+	Max = "number",
+	Integer = "boolean",
+	Saved = "boolean",
+	Replicate = "boolean",
+	MaxLength = "number",
+	Validate = "function",
+}
+
+export type Settings = {
+	Name: string,
+	Kind: string,
+	Default: any,
+	Min: number,
+	Max: number,
+	Integer: boolean,
+	Saved: boolean,
+	Replicate: boolean,
+	MaxLength: number,
+	Validate: ((any, Player) -> (boolean, string?))?,
+}
+
+-- Values of one kind share their hooks: every K.Value is in the "Value" family
+-- and every currency in the "Currency" one, so K.Currency.Before("Add") reaches
+-- all currencies. A family also decides where saves go and how clients read them.
+type Family = {
+	Label: string,
+	Section: string,
+	Prefix: string,
+	Pipelines: { [string]: any },
+	Overrides: { [string]: any },
+	Changed: any,
+	Handles: { [string]: any },
+	Names: { string },
+}
+
+local Value = {}
+
+local families: { Family } = {}
+local unsaved: { [Player]: { [string]: any } } = {}
+local readyPlayers: { [Player]: boolean } = {}
+
+local function requireServer(functionName: string)
+	if not IS_SERVER then
+		Errors.raise(`{functionName} only works in a server Script.`, {
+			"Clients can read values but not change them. Ask the server with K.Net.Fire and change it there.",
+		})
+	end
+end
+
+local function checkPlayer(player: any, functionName: string)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then
+		Errors.raise(`{functionName} expected a player first, but got {Errors.describe(player)}.`)
+	end
+end
+
+------------------------------------------------------------------------------
+-- Reading and writing
+------------------------------------------------------------------------------
+
+local function storeFor(player: Player, family: Family, settings: Settings): { [string]: any }?
+	if settings.Saved then
+		local profile = Data._getProfile(player)
+		return profile and (profile :: any)[family.Section]
+	end
+	local perPlayer = unsaved[player]
+	if perPlayer == nil then
+		return nil
+	end
+	perPlayer[family.Label] = perPlayer[family.Label] or {}
+	return perPlayer[family.Label]
+end
+
+-- Whether `value` is allowed, before Min/Max clamping. Returns false and why if not.
+local function accepts(settings: Settings, value: any, player: Player?): (boolean, string?)
+	if typeof(value) ~= settings.Kind then
+		return false, `{settings.Name} is {settings.Kind == "number" and "a number" or settings.Kind == "string" and "text" or "true or false"}, not {Errors.describe(value)}`
+	end
+	if settings.Kind == "number" and not Guard.isFinite(value) then
+		return false, `{settings.Name} can't be {tostring(value)}`
+	end
+	if settings.Kind == "string" and (#value > settings.MaxLength or utf8.len(value) == nil) then
+		return false, `{settings.Name} is longer than {settings.MaxLength} characters`
+	end
+	if settings.Validate and player then
+		local ok, valid, reason = pcall(settings.Validate, value, player)
+		if not ok then
+			Errors.warn(`The Validate function of {settings.Name} errored: {valid}`)
+			return false, "validation failed"
+		end
+		if not valid then
+			return false, if type(reason) == "string" then reason else `{Errors.describe(value)} isn't allowed for {settings.Name}`
+		end
+	end
+	return true, nil
+end
+
+local function normalize(settings: Settings, value: any): any
+	if settings.Kind ~= "number" then
+		return value
+	end
+	if settings.Integer then
+		value = math.floor(value + 0.5)
+	end
+	return math.clamp(value, settings.Min, settings.Max)
+end
+
+local function read(player: Player, handle): any
+	local store = storeFor(player, handle._family, handle._settings)
+	local value = store and store[handle.Name]
+	return if typeof(value) == handle._settings.Kind then value else handle._settings.Default
+end
+
+local function write(player: Player, handle, value: any)
+	local family: Family = handle._family
+	local store = storeFor(player, family, handle._settings)
+	if store == nil then
+		return
+	end
+	local old = read(player, handle)
+	store[handle.Name] = value
+	if handle._settings.Replicate then
+		player:SetAttribute(family.Prefix .. handle.Name, value)
+	end
+	if value ~= old then
+		handle.Changed:Fire(player, value, old)
+		family.Changed:Fire(player, handle.Name, value, old)
+	end
+end
+
+-- Loads a value for a player who just became ready (or a value defined late).
+local function initialize(player: Player, handle)
+	local settings: Settings = handle._settings
+	local store = storeFor(player, handle._family, settings)
+	if store == nil then
+		return
+	end
+	local saved = store[handle.Name]
+	-- Saved data isn't checked with Validate: it was valid when it was set, and
+	-- your rules may have changed since. Use K.Data.Migrate to fix old values.
+	local value = if saved ~= nil and accepts(settings, saved, nil) then normalize(settings, saved) else settings.Default
+	store[handle.Name] = value
+	if settings.Replicate then
+		player:SetAttribute(handle._family.Prefix .. handle.Name, value)
+	end
+end
+
+------------------------------------------------------------------------------
+-- Operations
+------------------------------------------------------------------------------
+
+-- Middleware may have changed ctx.Amount, so the cores check it again.
+local function validAmount(ctx): boolean
+	local amount = ctx.Amount
+	if type(amount) ~= "number" or not Guard.isFinite(amount) then
+		Errors.warn(`A hook set ctx.Amount to {Errors.describe(amount)}, so the change to {ctx.Name} was cancelled.`)
+		ctx.Reason = "invalid amount"
+		return false
+	end
+	if ctx.Definition.Integer then
+		ctx.Amount = math.floor(amount + 0.5)
+	end
+	return true
+end
+
+local CORES = {
+	Set = function(ctx)
+		if ctx.Definition.Kind == "number" and not validAmount(ctx) then
+			return false
+		end
+		return ctx.Commit(ctx.Amount)
+	end,
+	Add = function(ctx)
+		if not validAmount(ctx) then
+			return false
+		end
+		return ctx.Commit(read(ctx.Player, ctx.Handle) + math.max(ctx.Amount, 0))
+	end,
+	Take = function(ctx)
+		if not validAmount(ctx) then
+			return false
+		end
+		local current = read(ctx.Player, ctx.Handle)
+		local amount = math.max(ctx.Amount, 0)
+		if current - amount < ctx.Definition.Min then
+			ctx.Reason = "not enough"
+			return false
+		end
+		return ctx.Commit(current - amount)
+	end,
+}
+
+local function newFamily(label: string, section: string, prefix: string): Family
+	local family: Family = {
+		Label = label,
+		Section = section,
+		Prefix = prefix,
+		Pipelines = {},
+		Overrides = {},
+		Changed = Signal.new(),
+		Handles = {},
+		Names = {},
+	}
+	for _, operation in OPERATIONS do
+		-- A value's own Override wins, then the family's, then the built-in core.
+		family.Pipelines[operation] = Pipeline.new(`{label}.{operation}`, function(ctx)
+			local core = ctx.Handle._overrides[operation] or family.Overrides[operation] or CORES[operation]
+			return core(ctx)
+		end)
+	end
+	table.insert(families, family)
+	return family
+end
+
+local function run(handle, operation: string, player: Player, amount: any, source: string?): (boolean, any, string?)
+	local family: Family = handle._family
+	local settings: Settings = handle._settings
+	if storeFor(player, family, settings) == nil then
+		Errors.warn(`{player.Name}'s data isn't loaded, so their {handle.Name} couldn't change.`, {
+			"Use K.When.PlayerJoins or K.Players.OnJoin, which run after data loads.",
+		})
+		return false, settings.Default, "not loaded"
+	end
+	local ctx: { [string]: any } = {
+		Player = player,
+		Name = handle.Name,
+		Handle = handle,
+		Definition = settings,
+		Amount = amount,
+		Source = source,
+		Old = read(player, handle),
+	}
+	-- K.Value hooks read ctx.Value, K.Currency hooks ctx.Currency.
+	ctx[family.Label] = handle.Name
+	-- Applies a new value; returns false (with ctx.Reason) if it isn't allowed.
+	-- Works as ctx:Commit(value) and ctx.Commit(value).
+	ctx.Commit = function(first, second)
+		local value = if first == ctx then second else first
+		local ok, reason = accepts(settings, value, player)
+		if not ok then
+			if settings.Kind == "number" and (type(value) ~= "number" or not Guard.isFinite(value)) then
+				Errors.raise(`ctx:Commit expected a number, but got {Errors.describe(value)}.`)
+			end
+			ctx.Reason = reason
+			return false
+		end
+		ctx.Old = read(player, handle)
+		ctx.New = normalize(settings, value)
+		write(player, handle, ctx.New)
+		return true
+	end
+	local ok = family.Pipelines[operation]:Run(ctx)
+	return ok, read(player, handle), if ok then nil else ctx.Reason
+end
+
+------------------------------------------------------------------------------
+-- A value's methods
+------------------------------------------------------------------------------
+
+local function getOperation(operation: any, functionName: string): string
+	if not table.find(OPERATIONS, operation) then
+		Errors.raise(
+			`{functionName}: {Errors.quote(operation)} isn't an operation.`,
+			Errors.didYouMean(tostring(operation), OPERATIONS, { `Operations: {table.concat(OPERATIONS, ", ")}` })
+		)
+	end
+	return operation
+end
+
+local function checkAmount(handle, amount: any, functionName: string)
+	if handle._settings.Kind ~= "number" then
+		Errors.raise(`{functionName}: {handle.Name} holds {handle._settings.Kind}, so it can only be Set.`)
+	end
+	if type(amount) ~= "number" or not Guard.isFinite(amount) then
+		Errors.raise(`{functionName} expected an amount (a number), but got {Errors.describe(amount)}.`)
+	end
+	if amount < 0 then
+		Errors.raise(`{functionName} can't use a negative amount ({amount}).`, { "Use :Take to subtract." })
+	end
+end
+
+local ServerMethods = {}
+
+function ServerMethods.Get(handle, player: Player): any
+	checkPlayer(player, `{handle.Name}:Get()`)
+	return read(player, handle)
+end
+
+-- Returns (changed, newValue, reasonIfNot).
+function ServerMethods.Set(handle, player: Player, value: any, source: string?)
+	checkPlayer(player, `{handle.Name}:Set()`)
+	return run(handle, "Set", player, value, source)
+end
+
+function ServerMethods.Add(handle, player: Player, amount: number, source: string?)
+	checkPlayer(player, `{handle.Name}:Add()`)
+	checkAmount(handle, amount, `{handle.Name}:Add()`)
+	return run(handle, "Add", player, amount, source)
+end
+
+-- Fails, changing nothing, when the result would go below Min.
+function ServerMethods.Take(handle, player: Player, amount: number, source: string?)
+	checkPlayer(player, `{handle.Name}:Take()`)
+	checkAmount(handle, amount, `{handle.Name}:Take()`)
+	return run(handle, "Take", player, amount, source)
+end
+
+-- True when Take(player, amount) would work.
+function ServerMethods.Has(handle, player: Player, amount: number): boolean
+	checkPlayer(player, `{handle.Name}:Has()`)
+	checkAmount(handle, amount, `{handle.Name}:Has()`)
+	return read(player, handle) - amount >= handle._settings.Min
+end
+
+-- callback(player, new, old) on every change.
+function ServerMethods.OnChanged(handle, callback: (Player, any, any) -> ())
+	Errors.expect(callback, "function", "the callback", `{handle.Name}:OnChanged()`)
+	return handle.Changed:Connect(callback)
+end
+
+-- Runs before an operation on this value. Change ctx.Amount, or ctx:Cancel("reason").
+function ServerMethods.Before(handle, operation: string, callback: (any) -> (), priority: number?): () -> ()
+	getOperation(operation, `{handle.Name}:Before()`)
+	Errors.expect(callback, "function", "the callback", `{handle.Name}:Before()`)
+	return handle._family.Pipelines[operation]:Before(function(ctx)
+		if ctx.Handle == handle then
+			callback(ctx)
+		end
+	end, priority)
+end
+
+-- Runs after an operation on this value succeeded; ctx.Old and ctx.New hold the values.
+function ServerMethods.After(handle, operation: string, callback: (any) -> ()): () -> ()
+	getOperation(operation, `{handle.Name}:After()`)
+	Errors.expect(callback, "function", "the callback", `{handle.Name}:After()`)
+	return handle._family.Pipelines[operation]:After(function(ctx)
+		if ctx.Handle == handle then
+			callback(ctx)
+		end
+	end)
+end
+
+-- Full middleware: callback(ctx, next). Call next() to continue, or don't to stop.
+function ServerMethods.Use(handle, operation: string, callback: (any, () -> ()) -> (), priority: number?): () -> ()
+	getOperation(operation, `{handle.Name}:Use()`)
+	Errors.expect(callback, "function", "the callback", `{handle.Name}:Use()`)
+	return handle._family.Pipelines[operation]:Use(function(ctx, continue)
+		if ctx.Handle == handle then
+			callback(ctx, continue)
+		else
+			continue()
+		end
+	end, priority)
+end
+
+-- Replaces what an operation does for this value. Call ctx:Commit(value) to apply,
+-- or return false to fail.
+function ServerMethods.Override(handle, operation: string, callback: (any) -> boolean?)
+	getOperation(operation, `{handle.Name}:Override()`)
+	Errors.expect(callback, "function", "the callback", `{handle.Name}:Override()`)
+	handle._overrides[operation] = function(ctx)
+		return callback(ctx) ~= false
+	end
+end
+
+ServerMethods.Middleware = ServerMethods.Use
+
+local ClientMethods = {}
+
+local function readAttribute(handle, player: Player): any
+	local value = player:GetAttribute(handle._family.Prefix .. handle.Name)
+	if value == nil and player:GetAttribute(READY_ATTRIBUTE) then
+		Errors.warnOnce(`value-missing:{handle._family.Label}:{handle.Name}`, `{handle._family.Label} "{handle.Name}" doesn't reach clients.`, {
+			`Define it in a server Script (K.{handle._family.Label}("{handle.Name}", ...)), and don't set Replicate = false.`,
+		})
+	end
+	return value
+end
+
+-- Get() for yourself, or Get(otherPlayer). Nil until the server has sent it.
+function ClientMethods.Get(handle, player: Player?): any
+	local target = player or Players.LocalPlayer
+	checkPlayer(target, `{handle.Name}:Get()`)
+	return readAttribute(handle, target :: Player)
+end
+
+-- callback(new, old) whenever your own value changes.
+function ClientMethods.OnChanged(handle, callback: (any, any) -> ())
+	Errors.expect(callback, "function", "the callback", `{handle.Name}:OnChanged()`)
+	local player = Players.LocalPlayer
+	local attribute = handle._family.Prefix .. handle.Name
+	local last = player:GetAttribute(attribute)
+	return player:GetAttributeChangedSignal(attribute):Connect(function()
+		local new = player:GetAttribute(attribute)
+		local old = last
+		last = new
+		callback(new, old)
+	end)
+end
+
+for _, name in { "Set", "Add", "Take", "Has", "Before", "After", "Use", "Middleware", "Override" } do
+	ClientMethods[name] = function(handle)
+		requireServer(`{handle.Name}:{name}()`)
+	end
+end
+
+------------------------------------------------------------------------------
+-- Defining
+------------------------------------------------------------------------------
+
+local function checkName(name: any, functionName: string)
+	if type(name) ~= "string" or #name > MAX_NAME_LENGTH or string.match(name, NAME_PATTERN) == nil then
+		Errors.raise(`{functionName} expected a name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`)
+	end
+end
+
+local function buildSettings(name: string, options: { [string]: any }?, functionName: string): Settings
+	Errors.checkOptions(options, OPTIONS, functionName)
+	local given = options or {}
+	local default = if given.Default == nil then 0 else given.Default
+	local kind = typeof(default)
+	if kind ~= "number" then
+		for _, key in { "Min", "Max", "Integer" } do
+			if given[key] ~= nil then
+				Errors.raise(`{functionName}("{name}"): {key} only works for numbers, but the Default is {Errors.describe(default)}.`)
+			end
+		end
+	end
+	local settings: Settings = {
+		Name = name,
+		Kind = kind,
+		Default = default,
+		Min = given.Min or -MAX_SAFE_INTEGER,
+		Max = given.Max or MAX_SAFE_INTEGER,
+		Integer = given.Integer == true,
+		Saved = given.Saved ~= false,
+		Replicate = given.Replicate ~= false,
+		MaxLength = given.MaxLength or DEFAULT_MAX_LENGTH,
+		Validate = given.Validate,
+	}
+	if kind == "number" then
+		for _, field in { "Default", "Min", "Max" } do
+			if not Guard.isFinite(settings[field]) or math.abs(settings[field]) > MAX_SAFE_INTEGER then
+				Errors.raise(`{functionName}("{name}"): {field} must be a normal number up to 2^53.`)
+			end
+		end
+		if not (settings.Min <= settings.Default and settings.Default <= settings.Max) then
+			Errors.raise(`{functionName}("{name}"): Default must be between Min and Max.`)
+		end
+	end
+	if settings.MaxLength % 1 ~= 0 or settings.MaxLength < 1 then
+		Errors.raise(`{functionName}("{name}"): MaxLength must be a whole number of 1 or more.`)
+	end
+	local ok, reason = accepts(settings, default, nil)
+	if not ok then
+		Errors.raise(`{functionName}("{name}"): the Default can't be used: {reason}.`)
+	end
+	return table.freeze(settings)
+end
+
+local function newHandle(family: Family, name: string, settings: Settings?)
+	local handle = {
+		Name = name,
+		Changed = Signal.new(),
+		_family = family,
+		-- false on clients, which only read the replicated value.
+		_settings = settings or false,
+		_overrides = {},
+	}
+	return Methods.build(handle, if IS_SERVER then ServerMethods else ClientMethods, `{family.Label} "{name}"`)
+end
+
+-- Server: creates a value in `family`. Client: a read-only handle.
+local function define(family: Family, name: string, options: { [string]: any }?, functionName: string)
+	checkName(name, functionName)
+	if not IS_SERVER then
+		local existing = family.Handles[name]
+		if existing == nil then
+			existing = newHandle(family, name, nil)
+			family.Handles[name] = existing
+		end
+		return existing
+	end
+	if family.Handles[name] then
+		Errors.raise(`{family.Label} "{name}" is defined twice.`, { `Each needs only one {functionName}.` })
+	end
+	local handle = newHandle(family, name, buildSettings(name, options, functionName))
+	family.Handles[name] = handle
+	table.insert(family.Names, name)
+	-- Values defined late still reach players who are already in the game.
+	for player in readyPlayers do
+		initialize(player, handle)
+	end
+	return handle
+end
+
+local function find(family: Family, name: any, functionName: string)
+	local handle = family.Handles[name]
+	if handle == nil then
+		if type(name) ~= "string" then
+			Errors.raise(`{functionName} expected a name, but got {Errors.describe(name)}.`)
+		end
+		if not IS_SERVER then
+			return define(family, name, nil, functionName)
+		end
+		local create = if family.Label == "Value" then `K.Value("{name}", \{ Default = 0 \})` else `K.{family.Label}.Define("{name}")`
+		Errors.raise(`{family.Label} "{name}" doesn't exist.`, Errors.didYouMean(name, family.Names, { `Create it first: {create}` }))
+	end
+	return handle
+end
+
+------------------------------------------------------------------------------
+-- Public API
+------------------------------------------------------------------------------
+
+local valueFamily = newFamily("Value", "Values", "CorodeValue_")
+
+-- Server: fires with (player, name, new, old) when any K.Value changes.
+Value.Changed = valueFamily.Changed
+
+-- K.Value(name, options) is the same as K.Value.Define(name, options).
+function Value.Define(name: string, options: { [string]: any }?)
+	return define(valueFamily, name, options, "K.Value")
+end
+
+-- An existing value by name (on clients, any name).
+function Value.Get(name: string)
+	return find(valueFamily, name, "K.Value.Get")
+end
+
+function Value.Exists(name: string): boolean
+	return valueFamily.Handles[name] ~= nil
+end
+
+function Value.Names(): { string }
+	return table.clone(valueFamily.Names)
+end
+
+-- For other Corode systems (like K.Currency): a separate group of values with
+-- shared hooks, its own save section and its own attribute prefix.
+function Value._newFamily(label: string, section: string, prefix: string): Family
+	return newFamily(label, section, prefix)
+end
+
+function Value._define(family: Family, name: string, options: { [string]: any }?, functionName: string)
+	return define(family, name, options, functionName)
+end
+
+function Value._find(family: Family, name: any, functionName: string)
+	return find(family, name, functionName)
+end
+
+function Value._run(handle, operation: string, player: Player, amount: any, source: string?): (boolean, any, string?)
+	return run(handle, operation, player, amount, source)
+end
+
+function Value._playerReady(player: Player)
+	unsaved[player] = unsaved[player] or {}
+	readyPlayers[player] = true
+	for _, family in families do
+		for _, name in family.Names do
+			initialize(player, family.Handles[name])
+		end
+	end
+end
+
+function Value._playerRemoved(player: Player)
+	unsaved[player] = nil
+	readyPlayers[player] = nil
+end
+
+local PUBLIC_NAMES = { "Define", "Get", "Exists", "Names", "Changed" }
+
+-- Like Errors.strict, but K.Value itself can also be called.
+return setmetatable(Value, {
+	__call = function(_, name: string, options: { [string]: any }?)
+		return define(valueFamily, name, options, "K.Value")
+	end,
+	__index = function(_, key)
+		Errors.raise(`K.Value has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
+			'Create a value with K.Value("XP", { Default = 0 }).',
+		}))
+	end,
+})

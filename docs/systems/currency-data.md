@@ -2,6 +2,8 @@
 
 Currencies and your own data save automatically with session locking, so a player's data can't be duplicated or overwritten when they switch servers.
 
+Every currency is a [Value](../blocks/values) with whole numbers that can't go below 0 and that every client can see. For XP, levels, titles or settings, use `K.Value` directly.
+
 **Currency**
 
 ```lua

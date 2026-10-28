@@ -19,13 +19,14 @@ function Methods.build<T>(object: T & {}, methods: { [string]: any }, label: str
 	for name, method in methods do
 		table.insert(names, name)
 		target[name] = function(first, ...)
-			local result, extra
+			-- Not a tail call, so error locations still find the caller's line.
+			local results
 			if first == object then
-				result, extra = method(object, ...)
+				results = table.pack(method(object, ...))
 			else
-				result, extra = method(object, first, ...)
+				results = table.pack(method(object, first, ...))
 			end
-			return result, extra
+			return table.unpack(results, 1, results.n)
 		end
 	end
 	table.sort(names)

@@ -10,7 +10,7 @@ const SIDEBAR = join(ROOT, 'docs', '.vitepress', 'api-sidebar.json')
 
 // Modules exposed on K, with the file they live in. Internal helpers are left out.
 const MODULES = [
-  ['When', 'When'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
+  ['When', 'When'], ['Value', 'Value'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
   ['Items', 'Items'], ['Inventory', 'Inventory'], ['Stats', 'Stats'], ['Combat', 'Combat'],
   ['NPC', 'NPC'], ['Quests', 'Quests'], ['Rewards', 'Rewards'], ['Rounds', 'Rounds'], ['Teams', 'Teams'], ['Shop', 'Shop'],
   ['Global', 'Global'], ['AntiCheat', 'AntiCheat'], ['Admin', 'Admin'], ['Analytics', 'Analytics'],
@@ -23,6 +23,11 @@ const MODULES = [
 const METHOD_OWNERS = {
   Chain: 'chain', ActionMethods: 'action', ServerMethods: 'inventory', ClientMethods: 'inventory',
   NpcMethods: 'npc', Handle: 'handle', Signal: 'signal', Trove: 'trove',
+}
+
+// Method tables whose meaning depends on the module they're in.
+const MODULE_METHOD_OWNERS = {
+  Value: { ServerMethods: 'value', ClientMethods: null },
 }
 
 const escapeText = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -68,6 +73,7 @@ function parse(name, file) {
   const owner = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])
     .map(([prefix]) => prefix).find((prefix) => !(prefix in METHOD_OWNERS) || prefix === name) ?? name
 
+  const owners = { ...METHOD_OWNERS, ...(MODULE_METHOD_OWNERS[name] ?? {}) }
   const functions = []
   const methods = {}
   const events = []
@@ -79,8 +85,8 @@ function parse(name, file) {
       const comment = commentAbove(lines, index)
       if (separator === '.' && table === owner) {
         functions.push({ title: `K.${name}.${member}`, code: 'K.' + name + signature.slice(table.length), comment })
-      } else if (table in METHOD_OWNERS) {
-        const label = METHOD_OWNERS[table]
+      } else if (owners[table]) {
+        const label = owners[table]
         let params = signature.slice(table.length + 1 + member.length)
         // Methods written as Table.Name(object, ...) take the object as their first parameter.
         if (separator === '.') params = params.replace(/^\((\w+)(\s*:\s*\w+)?(,\s*)?/, '(')

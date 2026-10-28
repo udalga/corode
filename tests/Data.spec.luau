@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Data = require(ReplicatedStorage.Corode.Data)
 local Helpers = require(script.Parent.Helpers)
 
-local SECTIONS = { "Currencies", "Inventories", "Stats", "Quests", "Rewards", "Shop", "Global", "Analytics" }
+local SECTIONS = { "Currencies", "Values", "Inventories", "Stats", "Quests", "Rewards", "Shop", "Global", "Analytics" }
 
 return function(t)
 	local describe, it, expect = t.describe, t.it, t.expect

@@ -18,7 +18,7 @@
 
 	LocalScripts can require Corode too (K.Start() is optional there).
 
-	Systems:   K.When, K.Currency, K.Leaderstats, K.Items, K.Inventory, K.Stats, K.Combat,
+	Systems:   K.When, K.Value, K.Currency, K.Leaderstats, K.Items, K.Inventory, K.Stats, K.Combat,
 	           K.NPC, K.Quests, K.Rewards, K.Rounds, K.Teams, K.Shop, K.Global, K.AntiCheat, K.Admin, K.Analytics,
 	           K.Data, K.Players, K.Net, K.Notify, K.Badges, K.Motion, K.Timing, K.Guard,
 	           K.Format, K.Signal, K.Trove
@@ -61,6 +61,7 @@ local Stats = require(script.Stats)
 local Teams = require(script.Teams)
 local Timing = require(script.Timing)
 local UI = require(script.UI)
+local Value = require(script.Value)
 local When = require(script.When)
 
 local IS_SERVER = RunService:IsServer()
@@ -98,6 +99,7 @@ local Corode = {
 	Timing = Timing,
 	Trove = Trove,
 	UI = UI,
+	Value = Value,
 	When = When,
 
 	Configure = Config.Configure,
@@ -134,7 +136,7 @@ function Corode.Start()
 	if IS_SERVER then
 		Data._start({
 			OnLoaded = function(player)
-				Currency._playerReady(player)
+				Value._playerReady(player)
 				Items._playerReady(player)
 				Inventory._playerReady(player)
 				Stats._playerReady(player)
@@ -150,7 +152,7 @@ function Corode.Start()
 				Global._playerLeaving(player)
 			end,
 			OnReleased = function(player)
-				Currency._playerRemoved(player)
+				Value._playerRemoved(player)
 				Inventory._playerRemoved(player)
 				Stats._playerRemoved(player)
 				Quests._playerRemoved(player)

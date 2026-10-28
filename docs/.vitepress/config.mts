@@ -36,6 +36,10 @@ export default defineConfig({
           ],
         },
         {
+          text: 'Building blocks',
+          items: [{ text: 'Values', link: '/blocks/values' }],
+        },
+        {
           text: 'Gameplay',
           items: [
             { text: 'Currency, Leaderstats and Data', link: '/systems/currency-data' },

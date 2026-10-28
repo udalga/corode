@@ -26,22 +26,22 @@
 	ctx fields: Player, Currency, Amount, Source, Old, New, Cancel(reason), Commit(value).
 	Define options: Default (0), Min (0), Max, Saved (true), Integer (true).
 	Values are visible to every client, like leaderstats.
+
+	Each currency is a K.Value in its own family, saved in the Currencies
+	section, so these hooks reach every currency at once.
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local Data = require(script.Parent.Data)
 local Errors = require(script.Parent.Util.Errors)
 local Guard = require(script.Parent.Util.Guard)
 local Pipeline = require(script.Parent.Util.Pipeline)
-local Signal = require(script.Parent.Util.Signal)
+local Value = require(script.Parent.Value)
 
 local IS_SERVER = RunService:IsServer()
 local ATTRIBUTE_PREFIX = "Corode_"
 local READY_ATTRIBUTE = "CorodeReady"
-local NAME_PATTERN = "^%a[%w_]*$"
-local MAX_NAME_LENGTH = 40
 -- Above this, numbers lose precision.
 local MAX_SAFE_INTEGER = 2 ^ 53
 local OPERATIONS = { "Add", "Take", "Set" }
@@ -58,13 +58,10 @@ export type Definition = {
 
 local Currency = {}
 
--- Server: fires with (player, name, newValue, oldValue) whenever a value changes.
-Currency.Changed = Signal.new()
+local family = Value._newFamily("Currency", "Currencies", ATTRIBUTE_PREFIX)
 
-local definitions: { [string]: Definition } = {}
-local definitionNames: { string } = {}
-local unsaved: { [Player]: { [string]: number } } = {}
-local readyPlayers: { [Player]: boolean } = {}
+-- Server: fires with (player, name, newValue, oldValue) whenever a value changes.
+Currency.Changed = family.Changed
 
 local function requireServer(functionName: string)
 	if not IS_SERVER then
@@ -82,18 +79,11 @@ local function checkPlayer(player: any, functionName: string)
 	end
 end
 
-local function getDefinition(name: any, functionName: string): Definition
-	local definition = definitions[name]
-	if definition == nil then
-		if type(name) ~= "string" then
-			Errors.raise(`{functionName} expected a currency name, but got {Errors.describe(name)}.`)
-		end
-		Errors.raise(
-			`Currency "{name}" doesn't exist.`,
-			Errors.didYouMean(name, definitionNames, { `Create it first: K.Currency.Define("{name}")` })
-		)
+local function getHandle(name: any, functionName: string)
+	if type(name) ~= "string" then
+		Errors.raise(`{functionName} expected a currency name, but got {Errors.describe(name)}.`)
 	end
-	return definition
+	return Value._find(family, name, functionName)
 end
 
 local function checkAmount(amount: any, functionName: string)
@@ -107,128 +97,8 @@ local function checkAmount(amount: any, functionName: string)
 	end
 end
 
-local function normalize(definition: Definition, value: number): number
-	if definition.Integer then
-		value = math.floor(value + 0.5)
-	end
-	return math.clamp(value, definition.Min, definition.Max)
-end
-
-local function storeFor(player: Player, definition: Definition): { [string]: number }?
-	if definition.Saved then
-		local profile = Data._getProfile(player)
-		return profile and profile.Currencies
-	end
-	return unsaved[player]
-end
-
-local function read(player: Player, definition: Definition): number
-	local store = storeFor(player, definition)
-	local value = store and store[definition.Name]
-	return if type(value) == "number" then value else definition.Default
-end
-
-local function write(player: Player, definition: Definition, value: number)
-	local store = storeFor(player, definition)
-	if store == nil then
-		return
-	end
-	local old = read(player, definition)
-	store[definition.Name] = value
-	player:SetAttribute(ATTRIBUTE_PREFIX .. definition.Name, value)
-	if value ~= old then
-		Currency.Changed:Fire(player, definition.Name, value, old)
-	end
-end
-
-local function initialize(player: Player, definition: Definition)
-	local store = storeFor(player, definition)
-	if store == nil then
-		return
-	end
-	local saved = store[definition.Name]
-	local value = if type(saved) == "number" and Guard.isFinite(saved)
-		then normalize(definition, saved)
-		else definition.Default
-	store[definition.Name] = value
-	player:SetAttribute(ATTRIBUTE_PREFIX .. definition.Name, value)
-end
-
--- Middleware may have changed ctx.Amount, so the cores check it again.
-local function validAmount(ctx: Pipeline.Context): boolean
-	local amount = ctx.Amount
-	if type(amount) ~= "number" or not Guard.isFinite(amount) then
-		Errors.warn(`A Currency hook set ctx.Amount to {Errors.describe(amount)}, so the change was cancelled.`)
-		ctx.Reason = "invalid amount"
-		return false
-	end
-	if ctx.Definition.Integer then
-		ctx.Amount = math.floor(amount + 0.5)
-	end
-	return true
-end
-
-local pipelines = {
-	Add = Pipeline.new("Currency.Add", function(ctx)
-		if not validAmount(ctx) then
-			return false
-		end
-		ctx.Commit(read(ctx.Player, ctx.Definition) + math.max(ctx.Amount, 0))
-		return true
-	end),
-	Take = Pipeline.new("Currency.Take", function(ctx)
-		if not validAmount(ctx) then
-			return false
-		end
-		local current = read(ctx.Player, ctx.Definition)
-		local amount = math.max(ctx.Amount, 0)
-		if current - amount < ctx.Definition.Min then
-			ctx.Reason = "not enough"
-			return false
-		end
-		ctx.Commit(current - amount)
-		return true
-	end),
-	Set = Pipeline.new("Currency.Set", function(ctx)
-		if not validAmount(ctx) then
-			return false
-		end
-		ctx.Commit(ctx.Amount)
-		return true
-	end),
-}
-
-local function run(pipeline, player: Player, definition: Definition, amount: number, source: string?): (boolean, number)
-	if storeFor(player, definition) == nil then
-		Errors.warn(`{player.Name}'s data isn't loaded, so their {definition.Name} couldn't change.`, {
-			"Use K.When.PlayerJoins or K.Players.OnJoin, which run after data loads.",
-		})
-		return false, definition.Default
-	end
-	local ctx = {
-		Player = player,
-		Currency = definition.Name,
-		Definition = definition,
-		Amount = amount,
-		Source = source,
-		Old = read(player, definition),
-	}
-	-- Applies a new value. Works as ctx:Commit(value) and ctx.Commit(value).
-	ctx.Commit = function(first, second)
-		local value = if first == ctx then second else first
-		if type(value) ~= "number" or not Guard.isFinite(value) then
-			Errors.raise(`ctx:Commit expected a number, but got {Errors.describe(value)}.`)
-		end
-		ctx.Old = read(player, definition)
-		ctx.New = normalize(definition, value)
-		write(player, definition, ctx.New)
-	end
-	local ok = pipeline:Run(ctx)
-	return ok, read(player, definition)
-end
-
 local function getPipeline(operation: any, functionName: string)
-	local pipeline = pipelines[operation]
+	local pipeline = family.Pipelines[operation]
 	if pipeline == nil then
 		Errors.raise(
 			`{functionName}: "{tostring(operation)}" isn't a currency operation.`,
@@ -270,77 +140,56 @@ function Currency.Define(name: string, options: { Default: number?, Min: number?
 			"Clients see every currency automatically; use K.Currency.Get on the client.",
 		})
 	end
-	if type(name) ~= "string" or #name > MAX_NAME_LENGTH or string.match(name, NAME_PATTERN) == nil then
-		Errors.raise(
-			`K.Currency.Define expected a name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`
-		)
-	end
-	if definitions[name] then
-		Errors.raise(`Currency "{name}" is defined twice.`, { "Each currency needs only one K.Currency.Define." })
-	end
 	Errors.checkOptions(options, DEFINE_OPTIONS, "K.Currency.Define")
-
 	local settings = options or {}
-	local definition: Definition = {
-		Name = name,
+	Value._define(family, name, {
 		Default = settings.Default or 0,
 		Min = settings.Min or 0,
 		Max = settings.Max or MAX_SAFE_INTEGER,
 		Saved = settings.Saved ~= false,
 		Integer = settings.Integer ~= false,
-	}
-	for _, field in { "Default", "Min", "Max" } do
-		if not Guard.isFinite(definition[field]) or math.abs(definition[field]) > MAX_SAFE_INTEGER then
-			Errors.raise(`K.Currency.Define("{name}"): {field} must be a normal number up to 2^53.`)
-		end
-	end
-	if not (definition.Min <= definition.Default and definition.Default <= definition.Max) then
-		Errors.raise(`K.Currency.Define("{name}"): Default must be between Min and Max.`)
-	end
-
-	definitions[name] = table.freeze(definition)
-	table.insert(definitionNames, name)
-	-- Currencies defined late still reach players who are already in the game.
-	for player in readyPlayers do
-		initialize(player, definition)
-	end
+		Replicate = true,
+	}, "K.Currency.Define")
 end
 
 function Currency.Exists(name: string): boolean
-	return definitions[name] ~= nil
+	return family.Handles[name] ~= nil
 end
 
 function Currency.Names(): { string }
-	return table.clone(definitionNames)
+	return table.clone(family.Names)
 end
 
 -- Server: Add(player, name, amount). Returns (succeeded, newValue).
 function Currency.Add(player: Player, name: string, amount: number, source: string?): (boolean, number)
 	requireServer("K.Currency.Add")
 	checkPlayer(player, "K.Currency.Add")
-	local definition = getDefinition(name, "K.Currency.Add")
+	local handle = getHandle(name, "K.Currency.Add")
 	checkAmount(amount, "K.Currency.Add")
-	return run(pipelines.Add, player, definition, amount, source)
+	local ok, value = Value._run(handle, "Add", player, amount, source)
+	return ok, value
 end
 
 -- Server: Take(player, name, amount). Fails (and changes nothing) if they can't afford it.
 function Currency.Take(player: Player, name: string, amount: number, source: string?): (boolean, number)
 	requireServer("K.Currency.Take")
 	checkPlayer(player, "K.Currency.Take")
-	local definition = getDefinition(name, "K.Currency.Take")
+	local handle = getHandle(name, "K.Currency.Take")
 	checkAmount(amount, "K.Currency.Take")
-	return run(pipelines.Take, player, definition, amount, source)
+	local ok, value = Value._run(handle, "Take", player, amount, source)
+	return ok, value
 end
 
 -- Server: Set(player, name, value). The value is kept between Min and Max.
 function Currency.Set(player: Player, name: string, value: number, source: string?): (boolean, number)
 	requireServer("K.Currency.Set")
 	checkPlayer(player, "K.Currency.Set")
-	local definition = getDefinition(name, "K.Currency.Set")
+	local handle = getHandle(name, "K.Currency.Set")
 	if type(value) ~= "number" or not Guard.isFinite(value) then
 		Errors.raise(`K.Currency.Set expected a value (a number), but got {Errors.describe(value)}.`)
 	end
-	return run(pipelines.Set, player, definition, value, source)
+	local ok, new = Value._run(handle, "Set", player, value, source)
+	return ok, new
 end
 
 -- Server: Get(player, name). Client: Get(name) for yourself, or Get(otherPlayer, name).
@@ -348,7 +197,7 @@ function Currency.Get(...: any): number
 	if IS_SERVER then
 		local player, name = ...
 		checkPlayer(player, "K.Currency.Get")
-		return read(player, getDefinition(name, "K.Currency.Get"))
+		return getHandle(name, "K.Currency.Get"):Get(player)
 	end
 	local player, name = Players.LocalPlayer, ...
 	if typeof((...)) == "Instance" then
@@ -361,21 +210,16 @@ end
 function Currency.Has(player: Player, name: string, amount: number): boolean
 	requireServer("K.Currency.Has")
 	checkPlayer(player, "K.Currency.Has")
-	local definition = getDefinition(name, "K.Currency.Has")
+	local handle = getHandle(name, "K.Currency.Has")
 	checkAmount(amount, "K.Currency.Has")
-	return read(player, definition) - amount >= definition.Min
+	return handle:Has(player, amount)
 end
 
 -- Server: callback(player, new, old). Client: callback(new, old) for the local player.
 function Currency.OnChanged(name: string, callback: (...any) -> ())
 	Errors.expect(callback, "function", "the callback", "K.Currency.OnChanged")
 	if IS_SERVER then
-		getDefinition(name, "K.Currency.OnChanged")
-		return Currency.Changed:Connect(function(player, changedName, new, old)
-			if changedName == name then
-				callback(player, new, old)
-			end
-		end)
+		return getHandle(name, "K.Currency.OnChanged"):OnChanged(callback)
 	end
 	Errors.expect(name, "string", "the currency name", "K.Currency.OnChanged")
 	local player = Players.LocalPlayer
@@ -389,7 +233,7 @@ function Currency.OnChanged(name: string, callback: (...any) -> ())
 	end)
 end
 
--- Runs before an operation. Change ctx.Amount, or ctx:Cancel("reason") to stop it.
+-- Runs before an operation on any currency. Change ctx.Amount, or ctx:Cancel("reason") to stop it.
 function Currency.Before(operation: string, callback: (Pipeline.Context) -> (), priority: number?): () -> ()
 	requireServer("K.Currency.Before")
 	Errors.expect(callback, "function", "the callback", "K.Currency.Before")
@@ -441,7 +285,7 @@ function Currency.AddMultiplier(source: (Player, string) -> number): () -> ()
 	Errors.expect(source, "function", "the multiplier", "K.Currency.AddMultiplier")
 	if not multiplierHooked then
 		multiplierHooked = true
-		pipelines.Add:Before(function(ctx)
+		family.Pipelines.Add:Before(function(ctx)
 			if not UNMULTIPLIED_SOURCES[ctx.Source] then
 				ctx.Amount *= Currency.Multiplier(ctx.Player, ctx.Currency)
 			end
@@ -460,24 +304,15 @@ end
 function Currency.Override(operation: string, callback: (Pipeline.Context) -> boolean?)
 	requireServer("K.Currency.Override")
 	Errors.expect(callback, "function", "the callback", "K.Currency.Override")
-	getPipeline(operation, "K.Currency.Override"):Override(callback)
-end
-
-function Currency._getDefinition(name: string): Definition?
-	return definitions[name]
-end
-
-function Currency._playerReady(player: Player)
-	unsaved[player] = unsaved[player] or {}
-	readyPlayers[player] = true
-	for _, name in definitionNames do
-		initialize(player, definitions[name])
+	getPipeline(operation, "K.Currency.Override")
+	family.Overrides[operation] = function(ctx)
+		return callback(ctx) ~= false
 	end
 end
 
-function Currency._playerRemoved(player: Player)
-	unsaved[player] = nil
-	readyPlayers[player] = nil
+function Currency._getDefinition(name: string): Definition?
+	local handle = family.Handles[name]
+	return if handle then handle._settings else nil
 end
 
 return Errors.strict(Currency, "K.Currency")

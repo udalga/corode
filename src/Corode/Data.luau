@@ -27,8 +27,8 @@
 			save.Data.MusicOn = nil
 		end)
 
-	`save` holds Data plus Corode's own sections: Currencies, Inventories, Stats,
-	Quests, Rewards, Shop, Global and Analytics. Migrations run on a copy: if one
+	`save` holds Data plus Corode's own sections: Currencies, Values, Inventories,
+	Stats, Quests, Rewards, Shop, Global and Analytics. Migrations run on a copy: if one
 	errors, nothing is changed and the player is asked to rejoin, so a bug can't
 	damage saves. New players skip migrations. Never remove or renumber a
 	migration once players have joined with it; a server that doesn't know a
@@ -61,7 +61,7 @@ local RELEASE_WAIT = 30
 -- Unique per server, so a server can recognise its own lock.
 local SESSION_ID = HttpService:GenerateGUID(false)
 -- Corode's own systems save next to your Data, in these fields of the record.
-local SECTIONS = { "Currencies", "Inventories", "Stats", "Quests", "Rewards", "Shop", "Global", "Analytics" }
+local SECTIONS = { "Currencies", "Values", "Inventories", "Stats", "Quests", "Rewards", "Shop", "Global", "Analytics" }
 
 local SAVE_HINTS = {
 	Vector3 = "save X, Y and Z as numbers instead",
@@ -82,6 +82,7 @@ type Profile = {
 	Key: string,
 	Data: { [string]: any },
 	Currencies: { [string]: number },
+	Values: { [string]: any },
 	Inventories: { [string]: { any } },
 	Stats: { [string]: number },
 	Quests: { [string]: any },
@@ -487,6 +488,7 @@ local function onPlayerAdded(player: Player)
 		Key = key,
 		Data = record.Data,
 		Currencies = record.Currencies,
+		Values = record.Values,
 		Inventories = record.Inventories,
 		Stats = record.Stats,
 		Quests = record.Quests,

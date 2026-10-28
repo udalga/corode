@@ -27,7 +27,7 @@
 		               Gap = 8, Align = "Center" | "Start" | "End", CellSize = UDim2 (grids)
 
 	Components: Screen, Panel, Label, Button, Image, Bar, ForEach.
-	Data: FromCurrency("Coins"), FromInventory("Backpack"), FromStat("WalkSpeed"), FromHealth(),
+	Data: FromValue("XP"), FromCurrency("Coins"), FromInventory("Backpack"), FromStat("WalkSpeed"), FromHealth(),
 	FromQuests(), FromLeaderboard("Richest"), FromRound().
 	Colors and fonts come from K.UI.Theme, which you can change before building.
 
@@ -53,6 +53,7 @@ local Reactive = require(script.Parent.Util.Reactive)
 local Rounds = require(script.Parent.Rounds)
 local Stats = require(script.Parent.Stats)
 local Trove = require(script.Parent.Util.Trove)
+local Value = require(script.Parent.Value)
 
 local SCREEN_ATTRIBUTE = "CorodeScreen"
 local FONT_FAMILY = "rbxasset://fonts/families/BuilderSans.json"
@@ -488,6 +489,7 @@ end
 local currencyStates: { [string]: any } = {}
 local inventoryStates: { [string]: any } = {}
 local statStates: { [string]: any } = {}
+local valueStates: { [string]: any } = {}
 local healthState = nil
 local questsState = nil
 local leaderboardStates: { [string]: any } = {}
@@ -517,6 +519,23 @@ function UI.FromInventory(name: string)
 			state:Set(stacks)
 		end)
 		inventoryStates[name] = state
+	end
+	return state
+end
+
+-- A State that always holds one of your K.Value values (a name or the value itself).
+function UI.FromValue(value: any)
+	local handle = if type(value) == "string" then Value.Get(value) else value
+	if type(handle) ~= "table" or type(handle.Name) ~= "string" then
+		Errors.raise(`K.UI.FromValue expected a value name or a K.Value, but got {Errors.describe(value)}.`)
+	end
+	local state = valueStates[handle.Name]
+	if state == nil then
+		state = Reactive.State(handle:Get())
+		handle:OnChanged(function(new)
+			state:Set(new)
+		end)
+		valueStates[handle.Name] = state
 	end
 	return state
 end
