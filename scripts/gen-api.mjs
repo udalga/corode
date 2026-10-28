@@ -10,7 +10,7 @@ const SIDEBAR = join(ROOT, 'docs', '.vitepress', 'api-sidebar.json')
 
 // Modules exposed on K, with the file they live in. Internal helpers are left out.
 const MODULES = [
-  ['When', 'When'], ['Value', 'Value'], ['Action', 'Action'], ['Hooks', 'Hooks'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
+  ['When', 'When'], ['Value', 'Value'], ['Action', 'Action'], ['Hooks', 'Hooks'], ['Tag', 'Tag'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
   ['Items', 'Items'], ['Inventory', 'Inventory'], ['Stats', 'Stats'], ['Combat', 'Combat'],
   ['NPC', 'NPC'], ['Quests', 'Quests'], ['Rewards', 'Rewards'], ['Rounds', 'Rounds'], ['Teams', 'Teams'], ['Shop', 'Shop'],
   ['Global', 'Global'], ['AntiCheat', 'AntiCheat'], ['Admin', 'Admin'], ['Analytics', 'Analytics'],
@@ -30,6 +30,7 @@ const MODULE_METHOD_OWNERS = {
   Value: { ServerMethods: 'value', ClientMethods: null },
   Action: { ServerMethods: 'action', ClientMethods: 'action' },
   Hooks: { HookMethods: 'hooks' },
+  Tag: { Behavior: 'behavior' },
 }
 
 const escapeText = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

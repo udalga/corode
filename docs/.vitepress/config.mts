@@ -40,6 +40,7 @@ export default defineConfig({
           items: [
             { text: 'Values', link: '/blocks/values' },
             { text: 'Actions and Hooks', link: '/blocks/actions' },
+            { text: 'Tags', link: '/blocks/tags' },
           ],
         },
         {
