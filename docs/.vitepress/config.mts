@@ -43,6 +43,7 @@ export default defineConfig({
             { text: 'Tags', link: '/blocks/tags' },
             { text: 'Shared values and Timers', link: '/blocks/shared-timers' },
             { text: 'Machines', link: '/blocks/machines' },
+            { text: 'Recipes', link: '/blocks/recipes' },
           ],
         },
         {

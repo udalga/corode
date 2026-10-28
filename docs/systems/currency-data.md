@@ -32,7 +32,7 @@ end)
 
 Multipliers never apply to currency bought in the shop or given by admins (sources `"Shop"` and `"Admin"`). Values are visible to every client, like leaderstats.
 
-**Leaderstats**: `K.Leaderstats.Show("Coins", "Gems")` shows currencies on the player list, kept up to date automatically.
+**Leaderstats**: `K.Leaderstats.Show("Coins", "Gems", Level)` shows currencies and [values](../blocks/values) (numbers, text or true/false) on the player list, kept up to date automatically.
 
 **Data**
 
