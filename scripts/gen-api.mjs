@@ -31,9 +31,11 @@ function header(lines) {
   if (!lines[0]?.startsWith('--[[')) return null
   const end = lines.findIndex((line) => line.includes(']]'))
   const body = lines.slice(1, end).map((line) => line.replace(/^\t/, ''))
-  // The first line repeats the module name; the second is its one-line summary.
-  const [, summary = '', ...rest] = body
-  return { summary: summary.trim(), details: rest.join('\n').replace(/^\n+|\s+$/g, '') }
+  // The first line repeats the module name; the summary runs until the first blank line.
+  let summaryEnd = 1
+  while (summaryEnd < body.length && body[summaryEnd].trim() !== '') summaryEnd += 1
+  const summary = body.slice(1, summaryEnd).map((line) => line.trim()).join(' ')
+  return { summary, details: body.slice(summaryEnd).join('\n').replace(/^\n+|\s+$/g, '') }
 }
 
 function commentAbove(lines, index) {
