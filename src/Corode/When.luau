@@ -17,6 +17,7 @@
 	Events:  Touched, Clicked, Triggered (parts and models)
 	         Reaches, Changes (currencies)
 	         PlayerJoins, PlayerLeaves, CharacterSpawns, PlayerDies, PlayerKills
+	         RoundStarts, RoundEnds, PlayerWinsRound (with K.Rounds)
 	Actions: Run, Give, Take, GiveItem, TakeItem, Damage, Heal, Buff, Say, Kill,
 	         Respawn, Teleport, Award, Wait, Hide, Show, Remove, Then, Once,
 	         OncePerPlayer, Stop
@@ -69,6 +70,7 @@ local Notify = require(script.Parent.Notify)
 local PlayersModule = require(script.Parent.Players)
 local Quests = require(script.Parent.Quests)
 local Rewards = require(script.Parent.Rewards)
+local Rounds = require(script.Parent.Rounds)
 local Shop = require(script.Parent.Shop)
 local Stats = require(script.Parent.Stats)
 local Timing = require(script.Parent.Timing)
@@ -915,7 +917,68 @@ function When.QuestCompleted(id: any, callback: ((Player) -> ())?)
 	return chain
 end
 
-local WHEN_NAMES = { "PlayerJoins", "PlayerLeaves", "CharacterSpawns", "PlayerDies", "PlayerKills", "QuestCompleted" }
+local function requireRoundsServer(functionName: string)
+	if not IS_SERVER then
+		Errors.raise(`{functionName} only works in a server Script.`, {
+			"In a LocalScript, use K.Rounds.OnStateChanged(function(state) end).",
+		})
+	end
+end
+
+-- Runs for every player in a round when it starts (needs K.Rounds.Define).
+function When.RoundStarts(callback: ((Player) -> ())?)
+	requireRoundsServer("K.When.RoundStarts")
+	local chain = playerChain(callback, "K.When.RoundStarts", function(chain)
+		return Rounds.Started:Connect(function(round)
+			for _, player in round.Players do
+				if player.Parent == Players then
+					trigger(chain, player)
+				end
+			end
+		end)
+	end)
+	return chain
+end
+
+-- Runs for every player who played a round when it ends. The chain gets (player, result).
+function When.RoundEnds(callback: ((Player, any) -> ())?)
+	requireRoundsServer("K.When.RoundEnds")
+	local chain = playerChain(callback, "K.When.RoundEnds", function(chain)
+		return Rounds.Ended:Connect(function(round, result)
+			for _, player in round.Players do
+				if player.Parent == Players then
+					trigger(chain, player, result)
+				end
+			end
+		end)
+	end)
+	return chain
+end
+
+-- Runs for each winner of a round.
+function When.PlayerWinsRound(callback: ((Player) -> ())?)
+	requireRoundsServer("K.When.PlayerWinsRound")
+	local chain = playerChain(callback, "K.When.PlayerWinsRound", function(chain)
+		return Rounds.Ended:Connect(function(_, result)
+			for _, player in result.Winners do
+				trigger(chain, player)
+			end
+		end)
+	end)
+	return chain
+end
+
+local WHEN_NAMES = {
+	"PlayerJoins",
+	"PlayerLeaves",
+	"CharacterSpawns",
+	"PlayerDies",
+	"PlayerKills",
+	"QuestCompleted",
+	"RoundStarts",
+	"RoundEnds",
+	"PlayerWinsRound",
+}
 
 return setmetatable(When, {
 	__call = function(_, target: any)

@@ -19,7 +19,7 @@
 	LocalScripts can require Corode too (K.Start() is optional there).
 
 	Systems:   K.When, K.Currency, K.Leaderstats, K.Items, K.Inventory, K.Stats, K.Combat,
-	           K.NPC, K.Quests, K.Rewards, K.Shop, K.Global, K.AntiCheat, K.Admin, K.Analytics,
+	           K.NPC, K.Quests, K.Rewards, K.Rounds, K.Teams, K.Shop, K.Global, K.AntiCheat, K.Admin, K.Analytics,
 	           K.Data, K.Players, K.Net, K.Notify, K.Badges, K.Motion, K.Timing, K.Guard,
 	           K.Format, K.Signal, K.Trove
 	Client:    K.UI, K.Input
@@ -55,8 +55,10 @@ local Notify = require(script.Notify)
 local Players = require(script.Players)
 local Quests = require(script.Quests)
 local Rewards = require(script.Rewards)
+local Rounds = require(script.Rounds)
 local Shop = require(script.Shop)
 local Stats = require(script.Stats)
+local Teams = require(script.Teams)
 local Timing = require(script.Timing)
 local UI = require(script.UI)
 local When = require(script.When)
@@ -88,9 +90,11 @@ local Corode = {
 	Players = Players,
 	Quests = Quests,
 	Rewards = Rewards,
+	Rounds = Rounds,
 	Shop = Shop,
 	Signal = Signal,
 	Stats = Stats,
+	Teams = Teams,
 	Timing = Timing,
 	Trove = Trove,
 	UI = UI,

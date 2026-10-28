@@ -28,7 +28,7 @@
 
 	Components: Screen, Panel, Label, Button, Image, Bar, ForEach.
 	Data: FromCurrency("Coins"), FromInventory("Backpack"), FromStat("WalkSpeed"), FromHealth(),
-	FromQuests(), FromLeaderboard("Richest").
+	FromQuests(), FromLeaderboard("Richest"), FromRound().
 	Colors and fonts come from K.UI.Theme, which you can change before building.
 
 	Text is never rich text unless you set RichText = true yourself.
@@ -50,6 +50,7 @@ local Global = require(script.Parent.Global)
 local Inventory = require(script.Parent.Inventory)
 local Quests = require(script.Parent.Quests)
 local Reactive = require(script.Parent.Util.Reactive)
+local Rounds = require(script.Parent.Rounds)
 local Stats = require(script.Parent.Stats)
 local Trove = require(script.Parent.Util.Trove)
 
@@ -556,6 +557,39 @@ function UI.FromLeaderboard(name: string)
 		end)
 		leaderboardStates[name] = state
 	end
+	return state
+end
+
+local roundState = nil
+
+-- A State holding the round: { State, TimeLeft (whole seconds), Map, Alive, Score }.
+-- It updates every second while there's a countdown.
+function UI.FromRound()
+	if roundState then
+		return roundState
+	end
+	local function snapshot()
+		return {
+			State = Rounds.State(),
+			TimeLeft = math.ceil(Rounds.TimeLeft()),
+			Map = Rounds.Map(),
+			Alive = Rounds.IsAlive(),
+			Score = Rounds.Score(),
+		}
+	end
+	local state = Reactive.State(snapshot())
+	task.spawn(function()
+		while true do
+			local new = snapshot()
+			local old = state:Peek()
+			if new.State ~= old.State or new.TimeLeft ~= old.TimeLeft or new.Map ~= old.Map
+				or new.Alive ~= old.Alive or new.Score ~= old.Score then
+				state:Set(new)
+			end
+			task.wait(0.25)
+		end
+	end)
+	roundState = state
 	return state
 end
 

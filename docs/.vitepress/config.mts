@@ -43,6 +43,7 @@ export default defineConfig({
             { text: 'Stats and Combat', link: '/systems/stats-combat' },
             { text: 'NPC', link: '/systems/npc' },
             { text: 'Quests and Rewards', link: '/systems/quests-rewards' },
+            { text: 'Rounds and Teams', link: '/systems/rounds-teams' },
           ],
         },
         {

@@ -12,7 +12,7 @@ const SIDEBAR = join(ROOT, 'docs', '.vitepress', 'api-sidebar.json')
 const MODULES = [
   ['When', 'When'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
   ['Items', 'Items'], ['Inventory', 'Inventory'], ['Stats', 'Stats'], ['Combat', 'Combat'],
-  ['NPC', 'NPC'], ['Quests', 'Quests'], ['Rewards', 'Rewards'], ['Shop', 'Shop'],
+  ['NPC', 'NPC'], ['Quests', 'Quests'], ['Rewards', 'Rewards'], ['Rounds', 'Rounds'], ['Teams', 'Teams'], ['Shop', 'Shop'],
   ['Global', 'Global'], ['AntiCheat', 'AntiCheat'], ['Admin', 'Admin'], ['Analytics', 'Analytics'],
   ['UI', 'UI'], ['Input', 'Input'], ['Players', 'Players'], ['Net', 'Net'], ['Notify', 'Notify'],
   ['Badges', 'Badges'], ['Motion', 'Motion'], ['Timing', 'Timing'], ['Config', 'Config'],
