@@ -27,7 +27,7 @@
 		               Gap = 8, Align = "Center" | "Start" | "End", CellSize = UDim2 (grids)
 
 	Components: Screen, Panel, Label, Button, Image, Bar, ForEach.
-	Data: FromValue("XP"), FromCurrency("Coins"), FromInventory("Backpack"), FromStat("WalkSpeed"), FromHealth(),
+	Data: FromValue("XP"), FromShared("Weather"), FromTimer("Chest"), FromCurrency("Coins"), FromInventory("Backpack"), FromStat("WalkSpeed"), FromHealth(),
 	FromQuests(), FromLeaderboard("Richest"), FromRound().
 	Colors and fonts come from K.UI.Theme, which you can change before building.
 
@@ -51,7 +51,9 @@ local Inventory = require(script.Parent.Inventory)
 local Quests = require(script.Parent.Quests)
 local Reactive = require(script.Parent.Util.Reactive)
 local Rounds = require(script.Parent.Rounds)
+local Shared = require(script.Parent.Shared)
 local Stats = require(script.Parent.Stats)
+local Timer = require(script.Parent.Timer)
 local Trove = require(script.Parent.Util.Trove)
 local Value = require(script.Parent.Value)
 
@@ -490,6 +492,8 @@ local currencyStates: { [string]: any } = {}
 local inventoryStates: { [string]: any } = {}
 local statStates: { [string]: any } = {}
 local valueStates: { [string]: any } = {}
+local sharedStates: { [string]: any } = {}
+local timerStates: { [string]: any } = {}
 local healthState = nil
 local questsState = nil
 local leaderboardStates: { [string]: any } = {}
@@ -536,6 +540,43 @@ function UI.FromValue(value: any)
 			state:Set(new)
 		end)
 		valueStates[handle.Name] = state
+	end
+	return state
+end
+
+-- A State that always holds a K.Shared value.
+function UI.FromShared(name: string)
+	Errors.expect(name, "string", "the shared value's name", "K.UI.FromShared")
+	local state = sharedStates[name]
+	if state == nil then
+		local shared = Shared.Get(name)
+		state = Reactive.State(shared:Get())
+		shared:OnChanged(function(new)
+			state:Set(new)
+		end)
+		sharedStates[name] = state
+	end
+	return state
+end
+
+-- A State holding the whole seconds left on a K.Timer (yours, or a shared one).
+-- 0 when it isn't running.
+function UI.FromTimer(name: string)
+	Errors.expect(name, "string", "the timer's name", "K.UI.FromTimer")
+	local state = timerStates[name]
+	if state == nil then
+		local timer = Timer.Get(name)
+		state = Reactive.State(math.ceil(timer:TimeLeft()))
+		task.spawn(function()
+			while true do
+				local left = math.ceil(timer:TimeLeft())
+				if left ~= state:Peek() then
+					state:Set(left)
+				end
+				task.wait(0.2)
+			end
+		end)
+		timerStates[name] = state
 	end
 	return state
 end

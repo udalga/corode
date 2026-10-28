@@ -18,7 +18,7 @@
 
 	LocalScripts can require Corode too (K.Start() is optional there).
 
-	Blocks:    K.Value, K.Action, K.Hooks, K.Tag
+	Blocks:    K.Value, K.Action, K.Hooks, K.Tag, K.Shared, K.Timer
 	Systems:   K.When, K.Currency, K.Leaderstats, K.Items, K.Inventory, K.Stats, K.Combat,
 	           K.NPC, K.Quests, K.Rewards, K.Rounds, K.Teams, K.Shop, K.Global, K.AntiCheat, K.Admin, K.Analytics,
 	           K.Data, K.Players, K.Net, K.Notify, K.Badges, K.Motion, K.Timing, K.Guard,
@@ -59,10 +59,12 @@ local Players = require(script.Players)
 local Quests = require(script.Quests)
 local Rewards = require(script.Rewards)
 local Rounds = require(script.Rounds)
+local Shared = require(script.Shared)
 local Shop = require(script.Shop)
 local Stats = require(script.Stats)
 local Tag = require(script.Tag)
 local Teams = require(script.Teams)
+local Timer = require(script.Timer)
 local Timing = require(script.Timing)
 local UI = require(script.UI)
 local Value = require(script.Value)
@@ -98,11 +100,13 @@ local Corode = {
 	Quests = Quests,
 	Rewards = Rewards,
 	Rounds = Rounds,
+	Shared = Shared,
 	Shop = Shop,
 	Signal = Signal,
 	Stats = Stats,
 	Tag = Tag,
 	Teams = Teams,
+	Timer = Timer,
 	Timing = Timing,
 	Trove = Trove,
 	UI = UI,
@@ -144,6 +148,7 @@ function Corode.Start()
 		Data._start({
 			OnLoaded = function(player)
 				Value._playerReady(player)
+				Timer._playerReady(player)
 				Items._playerReady(player)
 				Inventory._playerReady(player)
 				Stats._playerReady(player)
@@ -160,6 +165,7 @@ function Corode.Start()
 			end,
 			OnReleased = function(player)
 				Value._playerRemoved(player)
+				Timer._playerRemoved(player)
 				Inventory._playerRemoved(player)
 				Stats._playerRemoved(player)
 				Quests._playerRemoved(player)
