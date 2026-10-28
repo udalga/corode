@@ -14,6 +14,25 @@
 	Data saves every AutoSaveInterval seconds, when the player leaves and when
 	the server shuts down. Only simple values can be saved: numbers, text,
 	true/false, and tables of those.
+
+	Migrations change saved data after your game is live. Each has a number;
+	when a player joins, every migration newer than their save runs once, in order:
+
+		K.Data.Migrate(1, function(save, userId)
+			save.Currencies.Gold = save.Currencies.Coins    -- rename a currency
+			save.Currencies.Coins = nil
+		end)
+		K.Data.Migrate(2, function(save)
+			save.Data.Settings = { Music = save.Data.MusicOn ~= false }
+			save.Data.MusicOn = nil
+		end)
+
+	`save` holds Data plus Corode's own sections: Currencies, Inventories, Stats,
+	Quests, Rewards, Shop, Global and Analytics. Migrations run on a copy: if one
+	errors, nothing is changed and the player is asked to rejoin, so a bug can't
+	damage saves. New players skip migrations. Never remove or renumber a
+	migration once players have joined with it; a server that doesn't know a
+	save's version refuses to load it rather than overwrite newer data.
 ]]
 
 local RunService = game:GetService("RunService")
@@ -70,10 +89,13 @@ type Profile = {
 	Shop: { [string]: any },
 	Global: { [string]: any },
 	Analytics: { [string]: any },
+	DataVersion: number,
 	Saving: boolean,
 	Released: boolean,
 	SaveFinished: any,
 }
+
+type Migration = { Version: number, Run: ({ [string]: any }, number) -> () }
 
 local Data = {}
 
@@ -81,6 +103,8 @@ local Data = {}
 Data.Loaded = Signal.new()
 
 local template: { [string]: any } = {}
+-- Sorted by Version.
+local migrations: { Migration } = {}
 local profiles: { [Player]: Profile } = {}
 local loading: { [Player]: boolean } = {}
 -- Keys of profiles this server is saving for the last time. This server's own lock
@@ -166,6 +190,65 @@ local function findUnsaveable(value: any, path: string, seen: { [any]: boolean }
 	return nil
 end
 
+local function latestVersion(list: { Migration }): number
+	local last = list[#list]
+	return if last then last.Version else 0
+end
+
+-- Runs the migrations newer than the record's DataVersion on a copy of it, and
+-- only copies the result back when every one of them worked.
+local function migrate(record: { [string]: any }, list: { Migration }, userId: number): (boolean, string?)
+	local version = tonumber(record.DataVersion) or 0
+	local working: { [string]: any } = { Data = deepCopy(record.Data) }
+	for _, section in SECTIONS do
+		working[section] = deepCopy(record[section])
+	end
+	for _, migration in list do
+		if migration.Version > version then
+			local ok, problem = pcall(migration.Run, working, userId)
+			if not ok then
+				return false, `migration {migration.Version} errored: {problem}`
+			end
+			for _, field in { "Data", table.unpack(SECTIONS) } do
+				if type(working[field]) ~= "table" then
+					return false, `migration {migration.Version} left save.{field} as {Errors.describe(working[field])}; it must stay a table`
+				end
+			end
+			version = migration.Version
+		end
+	end
+	local problem = findUnsaveable(working, "save", {})
+	if problem then
+		return false, `after migrating, {problem}`
+	end
+	record.Data = working.Data
+	for _, section in SECTIONS do
+		record[section] = working[section]
+	end
+	record.DataVersion = version
+	return true, nil
+end
+
+-- Brings a freshly loaded record up to date. Returns nil when it can be used,
+-- or why not: "outdated" (saved by a newer version of the game) or "failed".
+local function prepare(record: { [string]: any }, isNew: boolean, list: { Migration }, userId: number): (string?, string?)
+	local latest = latestVersion(list)
+	local version = tonumber(record.DataVersion) or 0
+	if isNew then
+		-- A brand-new save already has the newest shape.
+		record.DataVersion = latest
+		return nil, nil
+	elseif version > latest then
+		return "outdated", `the save is at version {version}, but this server only knows migrations up to {latest}`
+	elseif version < latest then
+		local ok, problem = migrate(record, list, userId)
+		if not ok then
+			return "failed", problem
+		end
+	end
+	return nil, nil
+end
+
 -- Stand-in for a DataStore when real saving isn't available in Studio.
 local function createMemoryStore()
 	local memory = {}
@@ -231,11 +314,13 @@ local function request(description: string, method: string, ...: any): boolean
 	return false
 end
 
--- Claims the player's data for this server. Returns the record, or nil and why.
-local function acquire(player: Player, key: string): (any, string?)
+-- Claims the player's data for this server. Returns the record and whether it
+-- is brand new, or nil and why.
+local function acquire(player: Player, key: string): (any, string?, boolean)
 	for _ = 1, LOCK_ATTEMPTS do
-		local claimed = nil
+		local claimed, isNew = nil, false
 		local ok = request(`Loading {player.Name}'s data`, "UpdateAsync", key, function(record)
+			isNew = type(record) ~= "table" or type(record.Data) ~= "table"
 			record = if type(record) == "table" then record else {}
 			local lock = record.Lock
 			local lockedElsewhere = type(lock) == "table"
@@ -255,18 +340,31 @@ local function acquire(player: Player, key: string): (any, string?)
 			return record
 		end)
 		if not ok then
-			return nil, "error"
+			return nil, "error", false
 		end
 		if claimed then
-			return claimed
+			return claimed, nil, isNew
 		end
 		if player.Parent ~= Players then
-			return nil, "left"
+			return nil, "left", false
 		end
 		-- Usually the previous server is still saving after the player left it.
 		task.wait(LOCK_RETRY_DELAY)
 	end
-	return nil, "locked"
+	return nil, "locked", false
+end
+
+-- Gives this server's lock back without writing anything else, for records it
+-- decided not to use.
+local function unlock(key: string)
+	request("Releasing a save", "UpdateAsync", key, function(record)
+		local lock = type(record) == "table" and record.Lock
+		if type(lock) ~= "table" or lock.Session ~= SESSION_ID then
+			return nil
+		end
+		record.Lock = nil
+		return record
+	end)
 end
 
 -- Writes the profile to the store. With `release`, also gives up this server's lock.
@@ -307,6 +405,7 @@ local function save(profile: Profile, release: boolean): boolean
 		end
 		record.Lock = if release then nil else { Session = SESSION_ID, Time = os.time() }
 		record.Version = FORMAT_VERSION
+		record.DataVersion = profile.DataVersion
 		return record
 	end)
 
@@ -345,9 +444,28 @@ local function onPlayerAdded(player: Player)
 	while releasing[key] and os.clock() < deadline and player.Parent == Players do
 		task.wait(0.1)
 	end
-	local record, reason = nil, "locked"
+	local record, reason, isNew = nil, "locked", false
 	if not releasing[key] then
-		record, reason = acquire(player, key)
+		record, reason, isNew = acquire(player, key)
+	end
+
+	if record ~= nil then
+		local refusal, problem = prepare(record, isNew, migrations, player.UserId)
+		if refusal then
+			unlock(key)
+			record = nil
+			reason = refusal
+			if refusal == "outdated" then
+				Errors.warn(`Didn't load {player.Name}'s data: {problem}.`, {
+					"This server runs an older version of the game. Shut down old servers after an update.",
+					"If you removed a K.Data.Migrate, put it back: saves that used it need it.",
+				})
+			else
+				Errors.warn(`Didn't load {player.Name}'s data because a K.Data.Migrate failed: {problem}.`, {
+					"Their save wasn't changed. Fix the migration and they can rejoin.",
+				})
+			end
+		end
 	end
 	loading[player] = nil
 
@@ -356,6 +474,10 @@ local function onPlayerAdded(player: Player)
 			player:Kick("Your data is still being saved on another server. Please rejoin in a minute.")
 		elseif reason == "error" then
 			player:Kick("Your data couldn't be loaded, so you were disconnected to keep it safe. Please rejoin.")
+		elseif reason == "outdated" then
+			player:Kick("This server is out of date. Please rejoin to get the newest version.")
+		elseif reason == "failed" then
+			player:Kick("Your data couldn't be updated, so you were disconnected to keep it safe. Please rejoin later.")
 		end
 		return
 	end
@@ -372,6 +494,7 @@ local function onPlayerAdded(player: Player)
 		Shop = record.Shop,
 		Global = record.Global,
 		Analytics = record.Analytics,
+		DataVersion = tonumber(record.DataVersion) or 0,
 		Saving = false,
 		Released = false,
 		SaveFinished = Signal.new(),
@@ -474,6 +597,36 @@ function Data.Template(values: { [string]: any })
 	end
 end
 
+-- Adds a migration that updates saves older than `version` (see the top of this file).
+-- Call it before K.Start(), in the order you like; they always run by number.
+function Data.Migrate(version: number, run: ({ [string]: any }, number) -> ())
+	if type(version) ~= "number" or version % 1 ~= 0 or version < 1 then
+		Errors.raise(`K.Data.Migrate expected a whole version number of 1 or more, but got {Errors.describe(version)}.`, {
+			"Number migrations 1, 2, 3... in the order they should run.",
+		})
+	end
+	Errors.expect(run, "function", "the migration function", "K.Data.Migrate")
+	for _, migration in migrations do
+		if migration.Version == version then
+			Errors.raise(`K.Data.Migrate({version}) is defined twice.`, { "Give each migration its own number." })
+		end
+	end
+	if hooks then
+		Errors.raise("K.Data.Migrate must run before K.Start().", {
+			"Players' data starts loading at K.Start(), so migrations added later would miss them.",
+		})
+	end
+	table.insert(migrations, { Version = version, Run = run })
+	table.sort(migrations, function(a, b)
+		return a.Version < b.Version
+	end)
+end
+
+-- The highest migration number added with K.Data.Migrate (0 when there are none).
+function Data.Version(): number
+	return latestVersion(migrations)
+end
+
 -- The player's data table. Change it directly; it saves automatically.
 function Data.Get(player: Player): { [string]: any }
 	checkPlayer(player, "K.Data.Get")
@@ -520,6 +673,12 @@ end
 
 function Data._getProfile(player: Player): Profile?
 	return profiles[player]
+end
+
+-- For tests: the loading steps with a list of migrations of their own, so they
+-- can run without a DataStore or touching the game's migrations.
+function Data._prepare(record: { [string]: any }, isNew: boolean, list: { Migration }, userId: number): (string?, string?)
+	return prepare(record, isNew, list, userId)
 end
 
 function Data._start(startHooks: Hooks)

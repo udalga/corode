@@ -52,3 +52,30 @@ K.Data.Erase(userId)              -- data deletion requests
 - New template fields are added to old saves; items removed from lists stay removed.
 - Only numbers, text, true/false and tables of those can be saved. A Vector3 or Instance is reported with its path (`data.Pos is a Vector3...`) and the last good save is kept.
 - If data can't be loaded, the player is kicked rather than given empty data that could overwrite their save.
+
+## Migrations
+
+New template fields reach old saves on their own. For anything else (renaming a currency, moving a field, splitting an inventory) after your game is live, add a migration:
+
+```lua
+K.Data.Migrate(1, function(save, userId)
+	save.Currencies.Gold = save.Currencies.Coins    -- rename a currency
+	save.Currencies.Coins = nil
+end)
+
+K.Data.Migrate(2, function(save)
+	save.Data.Settings = { Music = save.Data.MusicOn ~= false }
+	save.Data.MusicOn = nil
+end)
+
+K.Start()
+```
+
+- Each save remembers the last migration it went through. When a player joins, every newer migration runs once, by number. New players skip them and start at the newest version.
+- `save` holds `Data` plus Corode's own sections: `Currencies`, `Inventories`, `Stats`, `Quests`, `Rewards`, `Shop`, `Global` and `Analytics`. Each must stay a table.
+- Migrations run on a copy. If one errors or leaves something that can't be saved, the save isn't changed at all, the player is asked to rejoin later, and the Output says which migration failed.
+- Add migrations before `K.Start()`. `K.Data.Version()` returns the newest number.
+
+::: warning Never remove or renumber a migration
+A save remembers its version. If a server doesn't know that version (an old server still running after an update, or a migration you deleted), it refuses to load the save instead of overwriting newer data, and the player is asked to rejoin. Keep every migration, even when it no longer looks useful.
+:::
