@@ -1,0 +1,53 @@
+name: Build model
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+
+env:
+  ROJO_VERSION: 7.7.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rojo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v$ROJO_VERSION" -R rojo-rbx/rojo -p "rojo-$ROJO_VERSION-linux-x86_64.zip" -D "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/rojo-$ROJO_VERSION-linux-x86_64.zip" -d "$RUNNER_TEMP/rojo"
+          echo "$RUNNER_TEMP/rojo" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          rojo build default.project.json -o Corode.rbxm
+          # Only checks that the place project builds; it holds the demo scripts, not the demo's parts.
+          rojo build place.project.json -o "$RUNNER_TEMP/place.rbxl"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Corode
+          path: Corode.rbxm
+
+      - name: Check the version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(grep -oP 'Version = "\K[^"]+' src/Corode/init.luau)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::src/Corode/init.luau says $version but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" Corode.rbxm --title "Corode $GITHUB_REF_NAME" --generate-notes

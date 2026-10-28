@@ -3,3 +3,8 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 .claude/
 .vitepress/cache/
+*.rbxm
+*.rbxl
+*.rbxlx
+docs/api/
+docs/.vitepress/api-sidebar.json

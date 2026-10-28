@@ -1,0 +1,23 @@
+{
+  "name": "Corode Demo",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Corode": {
+        "$path": "src/Corode"
+      }
+    },
+    "ServerScriptService": {
+      "CorodeDemo": {
+        "$path": "examples/CorodeDemo.server.luau"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "CorodeHUD": {
+          "$path": "examples/CorodeHUD.client.luau"
+        }
+      }
+    }
+  }
+}
