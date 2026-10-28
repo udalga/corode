@@ -10,7 +10,7 @@ const SIDEBAR = join(ROOT, 'docs', '.vitepress', 'api-sidebar.json')
 
 // Modules exposed on K, with the file they live in. Internal helpers are left out.
 const MODULES = [
-  ['When', 'When'], ['Value', 'Value'], ['Action', 'Action'], ['Hooks', 'Hooks'], ['Tag', 'Tag'], ['Shared', 'Shared'], ['Timer', 'Timer'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
+  ['When', 'When'], ['Value', 'Value'], ['Action', 'Action'], ['Hooks', 'Hooks'], ['Tag', 'Tag'], ['Shared', 'Shared'], ['Timer', 'Timer'], ['Machine', 'Machine'], ['Currency', 'Currency'], ['Leaderstats', 'Leaderstats'], ['Data', 'Data'],
   ['Items', 'Items'], ['Inventory', 'Inventory'], ['Stats', 'Stats'], ['Combat', 'Combat'],
   ['NPC', 'NPC'], ['Quests', 'Quests'], ['Rewards', 'Rewards'], ['Rounds', 'Rounds'], ['Teams', 'Teams'], ['Shop', 'Shop'],
   ['Global', 'Global'], ['AntiCheat', 'AntiCheat'], ['Admin', 'Admin'], ['Analytics', 'Analytics'],
@@ -33,6 +33,7 @@ const MODULE_METHOD_OWNERS = {
   Tag: { Behavior: 'behavior' },
   Shared: { Methods_: 'shared' },
   Timer: { TimerMethods: 'timer' },
+  Machine: { ServerMethods: 'machine', ClientMethods: null },
 }
 
 const escapeText = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

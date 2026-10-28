@@ -18,7 +18,7 @@
 
 	LocalScripts can require Corode too (K.Start() is optional there).
 
-	Blocks:    K.Value, K.Action, K.Hooks, K.Tag, K.Shared, K.Timer
+	Blocks:    K.Value, K.Action, K.Hooks, K.Tag, K.Shared, K.Timer, K.Machine
 	Systems:   K.When, K.Currency, K.Leaderstats, K.Items, K.Inventory, K.Stats, K.Combat,
 	           K.NPC, K.Quests, K.Rewards, K.Rounds, K.Teams, K.Shop, K.Global, K.AntiCheat, K.Admin, K.Analytics,
 	           K.Data, K.Players, K.Net, K.Notify, K.Badges, K.Motion, K.Timing, K.Guard,
@@ -51,6 +51,7 @@ local Input = require(script.Input)
 local Inventory = require(script.Inventory)
 local Items = require(script.Items)
 local Leaderstats = require(script.Leaderstats)
+local Machine = require(script.Machine)
 local Motion = require(script.Motion)
 local Net = require(script.Net)
 local NPC = require(script.NPC)
@@ -92,6 +93,7 @@ local Corode = {
 	Inventory = Inventory,
 	Items = Items,
 	Leaderstats = Leaderstats,
+	Machine = Machine,
 	Motion = Motion,
 	Net = Net,
 	Notify = Notify,

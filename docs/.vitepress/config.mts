@@ -42,6 +42,7 @@ export default defineConfig({
             { text: 'Actions and Hooks', link: '/blocks/actions' },
             { text: 'Tags', link: '/blocks/tags' },
             { text: 'Shared values and Timers', link: '/blocks/shared-timers' },
+            { text: 'Machines', link: '/blocks/machines' },
           ],
         },
         {

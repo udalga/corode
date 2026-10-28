@@ -2,6 +2,8 @@
 
 A round-based game in one call: wait for players, count down, play, pick the winners, reward them, clean up and start again.
 
+Rounds is a [Machine](../blocks/machines) with four states: Waiting, Intermission, Playing and Ending. When you need other steps, like a map vote or a results screen, build your own machine instead.
+
 ## A complete round game
 
 ```lua

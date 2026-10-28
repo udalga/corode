@@ -1,7 +1,9 @@
 --[[
 	Rounds
 	A game loop: wait for players, count down, play a round, pick the winners,
-	reward them, clean up and start again.
+	reward them, clean up and start again. It's a K.Machine with four states
+	(Waiting, Intermission, Playing, Ending); build your own with K.Machine
+	when you need different steps, like a map vote.
 
 	Server Script:
 		K.Teams.Define("Red", { Color = Color3.fromRGB(220, 60, 60) })
@@ -52,6 +54,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Errors = require(script.Parent.Util.Errors)
+local Machine = require(script.Parent.Machine)
 local Notify = require(script.Parent.Notify)
 local PlayersModule = require(script.Parent.Players)
 local Rewards = require(script.Parent.Rewards)
@@ -170,7 +173,6 @@ local function newGame(settings: { [string]: any }, folder: Instance?, signals: 
 		Config = settings,
 		Folder = folder,
 		State = "Waiting",
-		EndsAt = nil :: number?,
 		Round = nil :: Round?,
 		Alive = {} :: { [Player]: boolean },
 		Scores = {} :: { [Player]: number },
@@ -178,6 +180,8 @@ local function newGame(settings: { [string]: any }, folder: Instance?, signals: 
 		Started = signals.Started,
 		Ended = signals.Ended,
 		Eliminated = signals.Eliminated,
+		_machine = nil :: any,
+		_trove = nil :: any,
 		_stopped = false,
 		_finish = nil :: string?,
 		_forced = nil :: { Winners: { Player }, Team: string? }?,
@@ -187,18 +191,19 @@ local function newGame(settings: { [string]: any }, folder: Instance?, signals: 
 	}, Game)
 end
 
-function Game:_setState(state: string, seconds: number?)
+-- Called by every state's Enter: mirrors the state for Rounds' API and clients.
+function Game:_entered(state: string, machine)
 	self.State = state
-	self.EndsAt = if seconds then os.clock() + seconds else nil
+	local left = machine:TimeLeft()
 	if self.Folder then
 		self.Folder:SetAttribute("State", state)
-		self.Folder:SetAttribute("EndsAt", if seconds then workspace:GetServerTimeNow() + seconds else nil)
+		self.Folder:SetAttribute("EndsAt", if left > 0 then workspace:GetServerTimeNow() + left else nil)
 	end
 	self.StateChanged:Fire(state)
 end
 
 function Game:TimeLeft(): number
-	return if self.EndsAt then math.max(0, self.EndsAt - os.clock()) else 0
+	return if self._machine then self._machine:TimeLeft() else 0
 end
 
 local function eligible(): { Player }
@@ -500,10 +505,12 @@ local function giveReward(player: Player, bundle: any)
 	end
 end
 
-function Game:_play()
+-- Playing's Enter: sets up the map, teams and players, then starts the clock.
+function Game:_begin()
 	local config = self.Config
 	local participants = eligible()
 	local trove = Trove.new()
+	self._trove = trove
 
 	local map = self:_pickMap()
 	if map then
@@ -540,8 +547,6 @@ function Game:_play()
 	for _ in startTeams do
 		self._startTeams += 1
 	end
-
-	self:_setState("Playing", config.Duration)
 	if self.Folder then
 		self.Folder:SetAttribute("Map", if map then map.Name else nil)
 		self.Folder:SetAttribute("Result", nil)
@@ -550,14 +555,11 @@ function Game:_play()
 	trove:Add(Players.PlayerRemoving:Connect(function(player)
 		self:Eliminate(player, "Left")
 	end))
-	local deaths = PlayersModule.OnDeath(function(player)
+	trove:Add(PlayersModule.OnDeath(function(player)
 		if config.Mode == "Elimination" then
 			self:Eliminate(player, "Died")
 		end
-	end)
-	trove:Add(function()
-		deaths.Disconnect()
-	end)
+	end))
 	for _, player in participants do
 		task.spawn(self._sendToSpawn, self, player)
 		if config.Mode == "Score" then
@@ -575,13 +577,13 @@ function Game:_play()
 		task.spawn(config.OnStart, round)
 	end
 	self:_checkFinished()
+end
 
-	while not self._stopped and self._finish == nil and os.clock() < (self.EndsAt :: number) do
-		task.wait(0.1)
-	end
-	local result = self:_result(if self._stopped then "Ended" else self._finish or "TimeUp")
-
-	self:_setState("Ending", config.EndDelay)
+-- Ending's Enter: picks the winners, announces them and gives rewards.
+function Game:_conclude()
+	local config = self.Config
+	local round = self.Round :: Round
+	local result = self:_result(self._finish or "TimeUp")
 	local text = describe(result)
 	if self.Folder then
 		self.Folder:SetAttribute("Result", text)
@@ -605,15 +607,20 @@ function Game:_play()
 	if config.OnEnd then
 		task.spawn(config.OnEnd, round, result)
 	end
+end
 
-	local deadline = os.clock() + config.EndDelay
-	while not self._stopped and os.clock() < deadline do
-		task.wait(0.1)
+-- Ending's Exit: the map goes, and everyone who played goes back to the lobby.
+function Game:_cleanup()
+	local config = self.Config
+	local round = self.Round
+	if round == nil then
+		return
 	end
-
-	-- Clean up: the map goes, and everyone who played goes back to the lobby.
 	local stillOnMap = table.clone(self.Alive)
-	trove:Clean()
+	if self._trove then
+		self._trove:Clean()
+		self._trove = nil
+	end
 	for _, player in present(round.Players) do
 		player:SetAttribute(IN_ROUND_ATTRIBUTE, nil)
 		player:SetAttribute(SCORE_ATTRIBUTE, nil)
@@ -631,33 +638,81 @@ function Game:_play()
 	table.clear(self.Scores)
 end
 
-function Game:_run()
-	while not self._stopped do
-		self:_setState("Waiting")
-		while not self._stopped and #eligible() < self.Config.MinPlayers do
-			task.wait(0.5)
-		end
-		if self._stopped then
-			break
-		end
-		self:_setState("Intermission", self.Config.Intermission)
-		local enough = true
-		while not self._stopped and os.clock() < (self.EndsAt :: number) do
-			task.wait(0.1)
-			if #eligible() < self.Config.MinPlayers then
-				enough = false
-				break
-			end
-		end
-		if enough and not self._stopped then
-			self:_play()
-		end
+-- The loop is a K.Machine: Waiting → Intermission → Playing → Ending → Waiting.
+function Game:_start()
+	local config = self.Config
+	local function enough(): boolean
+		return #eligible() >= config.MinPlayers
 	end
+	self._machine = Machine({
+		Initial = "Waiting",
+		States = {
+			Waiting = {
+				Enter = function(machine)
+					self:_entered("Waiting", machine)
+					if self._stopped then
+						machine:Stop()
+					end
+				end,
+				Update = function()
+					if not self._stopped and enough() then
+						return "Intermission"
+					end
+					return nil
+				end,
+			},
+			Intermission = {
+				Duration = config.Intermission,
+				Next = "Playing",
+				Enter = function(machine)
+					self:_entered("Intermission", machine)
+				end,
+				Update = function()
+					if self._stopped or not enough() then
+						return "Waiting"
+					end
+					return nil
+				end,
+			},
+			Playing = {
+				Duration = config.Duration,
+				Next = "Ending",
+				Enter = function(machine)
+					self:_entered("Playing", machine)
+					self:_begin()
+				end,
+				Update = function()
+					if self._stopped and self._finish == nil then
+						self._finish = "Ended"
+					end
+					return if self._finish then "Ending" else nil
+				end,
+			},
+			Ending = {
+				Duration = config.EndDelay,
+				Next = "Waiting",
+				Enter = function(machine)
+					self:_entered("Ending", machine)
+					self:_conclude()
+				end,
+				Update = function()
+					return if self._stopped then "Waiting" else nil
+				end,
+				Exit = function()
+					self:_cleanup()
+				end,
+			},
+		},
+	})
 end
 
 -- Stops the loop (ending a round in progress). Used by tests.
 function Game:Stop()
 	self._stopped = true
+	local machine = self._machine
+	if machine and (machine:State() == "Waiting" or machine:State() == "Intermission") then
+		machine:Stop()
+	end
 end
 
 ------------------------------------------------------------------------------
@@ -701,7 +756,7 @@ function Rounds.Define(config: { [string]: any })
 	replicated.Name = FOLDER_NAME
 	replicated.Parent = ReplicatedStorage
 	main = newGame(settings, replicated, Rounds)
-	task.spawn(main._run, main)
+	main:_start()
 end
 
 -- "Waiting", "Intermission", "Playing" or "Ending".
@@ -813,7 +868,7 @@ function Rounds._new(config: { [string]: any })
 		Ended = Signal.new(),
 		Eliminated = Signal.new(),
 	})
-	task.spawn(game_._run, game_)
+	game_:_start()
 	return game_
 end
 
