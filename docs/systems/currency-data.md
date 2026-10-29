@@ -52,8 +52,16 @@ K.Data.Erase(userId)              -- data deletion requests
 
 - Saves every 60 seconds, when a player leaves and when the server shuts down.
 - New template fields are added to old saves; items removed from lists stay removed.
-- Only numbers, text, true/false and tables of those can be saved. A Vector3 or Instance is reported with its path (`data.Pos is a Vector3...`) and the last good save is kept.
+- Only numbers, text, true/false and tables of those can be saved. A Vector3 or Instance is reported with its path (`data.Pos is a Vector3...`) and the last good save of that part is kept; currencies, items and the rest still save.
 - If data can't be loaded, the player is kicked rather than given empty data that could overwrite their save.
+
+**When the DataStore has problems**
+
+- **A leaving player's last save fails:** this server keeps their data and their lock, and tries again for 3 minutes. If they rejoin the same server meanwhile, they get that newest data back instead of the older save.
+- **Too many requests:** saves wait for Roblox's request budget instead of spending their retries on requests that would be throttled.
+- **Too much data:** a save over the DataStore's size limit (about 4 million characters) would fail every time, so it isn't sent and the Output says how big it is, with a warning from 3 million on.
+- **Shutting down:** every player's `K.Players.OnLeave` callbacks run before their last save, so what they change is saved too.
+- **Rules that changed:** a saved value that no longer fits its value's rules (another type, or text over a new `MaxLength`) starts at the Default, and the old value is kept as `save.Values._Replaced_Name` (or `save.Currencies...`) so a migration can bring it back.
 
 ## Migrations
 

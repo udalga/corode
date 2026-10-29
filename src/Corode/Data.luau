@@ -59,10 +59,20 @@ local REQUEST_ATTEMPTS = 3
 local SHUTDOWN_TIMEOUT = 25
 -- How long a rejoining player waits for their previous session on this server to finish saving.
 local RELEASE_WAIT = 30
+-- How long a leaving player's last save keeps retrying when the DataStore fails.
+local FINAL_SAVE_DEADLINE = 180
+-- DataStore values can't be over 4,194,304 characters; warn well before that.
+local MAX_RECORD_SIZE = 4_000_000
+local LARGE_RECORD_SIZE = 3_000_000
+-- How long a request waits for DataStore budget before trying anyway.
+local BUDGET_WAIT = 30
 -- Unique per server, so a server can recognise its own lock.
 local SESSION_ID = HttpService:GenerateGUID(false)
 -- Corode's own systems save next to your Data, in these fields of the record.
 local SECTIONS = { "Currencies", "Values", "Timers", "Inventories", "Stats", "Quests", "Rewards", "Shop", "Global", "Analytics" }
+
+-- Every part of a record that is saved.
+local FIELDS = { "Data", table.unpack(SECTIONS) }
 
 local SAVE_HINTS = {
 	Vector3 = "save X, Y and Z as numbers instead",
@@ -81,6 +91,8 @@ type Hooks = {
 type Profile = {
 	Player: Player,
 	Key: string,
+	-- Where it saves: the game's DataStore (tests give their own).
+	Store: any,
 	Data: { [string]: any },
 	Currencies: { [string]: number },
 	Values: { [string]: any },
@@ -94,7 +106,13 @@ type Profile = {
 	Analytics: { [string]: any },
 	DataVersion: number,
 	Saving: boolean,
+	-- The lock is given back (or lost to another server): nothing more is saved.
 	Released: boolean,
+	-- Goes up when the player rejoins this server before their last save landed
+	-- and takes the session back, so the old session's retries stop.
+	Generation: number,
+	-- OnLeaving already ran for this session.
+	Left: boolean,
 	SaveFinished: any,
 }
 
@@ -114,6 +132,9 @@ local loading: { [Player]: boolean } = {}
 -- would let a player who rejoins quickly load before that save lands.
 local releasing: { [string]: number } = {}
 local store: any = nil
+-- Last saves that failed and are being retried, by key.
+local pendingReleases: { [string]: Profile } = {}
+local shuttingDown = false
 local hooks: Hooks? = nil
 -- True when Data was started on its own with K.Data.Start.
 local standalone = false
@@ -303,11 +324,31 @@ local function resolveStore(): any
 	return result
 end
 
+local BUDGET_TYPES: { [string]: Enum.DataStoreRequestType } = {
+	UpdateAsync = Enum.DataStoreRequestType.UpdateAsync,
+	RemoveAsync = Enum.DataStoreRequestType.SetIncrementAsync,
+}
+
+-- Waits until the game may make another request of this kind, so retries aren't
+-- spent on requests Roblox would only throttle. Stand-in stores have no budget.
+local function waitForBudget(target: any, method: string)
+	local kind = BUDGET_TYPES[method]
+	if kind == nil or typeof(target) ~= "Instance" then
+		return
+	end
+	-- A shutting-down server has seconds left, so it doesn't wait long.
+	local deadline = os.clock() + (if shuttingDown then 2 else BUDGET_WAIT)
+	while DataStoreService:GetRequestBudgetForRequestType(kind) < 1 and os.clock() < deadline do
+		task.wait(1)
+	end
+end
+
 -- Calls a store method, retrying with backoff. Returns true on success.
-local function request(description: string, method: string, ...: any): boolean
+local function request(target: any, description: string, method: string, ...: any): boolean
 	local lastProblem = nil
 	for attempt = 1, REQUEST_ATTEMPTS do
-		local ok, problem = pcall(store[method], store, ...)
+		waitForBudget(target, method)
+		local ok, problem = pcall(target[method], target, ...)
 		if ok then
 			return true
 		end
@@ -325,7 +366,7 @@ end
 local function acquire(player: Player, key: string): (any, string?, boolean)
 	for _ = 1, LOCK_ATTEMPTS do
 		local claimed: any, isNew = nil, false
-		local ok = request(`Loading {player.Name}'s data`, "UpdateAsync", key, function(record: any): any
+		local ok = request(store, `Loading {player.Name}'s data`, "UpdateAsync", key, function(record: any): any
 			isNew = type(record) ~= "table" or type(record.Data) ~= "table"
 			record = if type(record) == "table" then record else {}
 			local lock = record.Lock
@@ -363,7 +404,7 @@ end
 -- Gives this server's lock back without writing anything else, for records it
 -- decided not to use.
 local function unlock(key: string)
-	request("Releasing a save", "UpdateAsync", key, function(record: any): any
+	request(store, "Releasing a save", "UpdateAsync", key, function(record: any): any
 		local lock = type(record) == "table" and record.Lock
 		if type(lock) ~= "table" or lock.Session ~= SESSION_ID then
 			return nil
@@ -384,18 +425,39 @@ local function save(profile: Profile, release: boolean): boolean
 	profile.Saving = true
 
 	local player = profile.Player
-	local problem = findUnsaveable(profile.Data, "data", {})
-	for _, section in SECTIONS do
-		problem = problem or findUnsaveable((profile :: any)[section], string.lower(section), {})
+	-- Each part is checked on its own, so one value that can't be saved doesn't
+	-- stop the rest (coins, items, quests...) from saving.
+	local saving: { [string]: any } = {}
+	for _, field in FIELDS do
+		local value = (profile :: any)[field]
+		local problem = findUnsaveable(value, if field == "Data" then "data" else string.lower(field), {})
+		if problem then
+			Errors.warnOnce(`unsaveable:{problem}`, `Couldn't save {player.Name}'s {field}: {problem}.`, {
+				`Their last good {field} is kept until this is fixed; everything else still saves.`,
+			})
+		else
+			saving[field] = value
+		end
 	end
-	if problem then
-		Errors.warnOnce(`unsaveable:{problem}`, `Couldn't save {player.Name}'s data: {problem}.`, {
-			"Their last good save is kept until this is fixed.",
+	local encoded, json = pcall(HttpService.JSONEncode, HttpService, saving)
+	local length = if encoded then #json else 0
+	if length > MAX_RECORD_SIZE then
+		Errors.warnOnce(
+			`too-big:{profile.Key}`,
+			`{player.Name}'s data is {length} characters, over the DataStore limit, so it can't be saved.`,
+			{
+				"Their last good save is kept. Store less per player, like counts instead of long lists.",
+			}
+		)
+		table.clear(saving)
+	elseif length > LARGE_RECORD_SIZE then
+		Errors.warnOnce(`large:{profile.Key}`, `{player.Name}'s data is {length} characters; saves fail above {MAX_RECORD_SIZE}.`, {
+			"Store less per player before it reaches the limit.",
 		})
 	end
 
 	local lost = false
-	local ok = request(`Saving {player.Name}'s data`, "UpdateAsync", profile.Key, function(record: any): any
+	local ok = request(profile.Store, `Saving {player.Name}'s data`, "UpdateAsync", profile.Key, function(record: any): any
 		local lock = type(record) == "table" and record.Lock
 		if type(lock) ~= "table" or lock.Session ~= SESSION_ID then
 			-- Another server took over; writing now would overwrite newer data.
@@ -403,11 +465,8 @@ local function save(profile: Profile, release: boolean): boolean
 			return nil
 		end
 		lost = false
-		if not problem then
-			record.Data = profile.Data
-			for _, section in SECTIONS do
-				record[section] = (profile :: any)[section]
-			end
+		for field, value in saving do
+			record[field] = value
 		end
 		record.Lock = if release then nil else { Session = SESSION_ID, Time = os.time() }
 		record.Version = FORMAT_VERSION
@@ -416,7 +475,8 @@ local function save(profile: Profile, release: boolean): boolean
 	end)
 
 	profile.Saving = false
-	if release or lost then
+	-- A last save that failed keeps the lock, so it can be tried again.
+	if lost or (ok and release) then
 		profile.Released = true
 	end
 	profile.SaveFinished:Fire()
@@ -430,14 +490,61 @@ local function save(profile: Profile, release: boolean): boolean
 	return ok and not lost
 end
 
--- Saves a profile one last time and gives its lock back.
+-- Saves a profile one last time and gives its lock back. If the DataStore keeps
+-- failing, the data stays on this server and the save is retried for
+-- FINAL_SAVE_DEADLINE seconds, or until the player rejoins here and takes it back.
 local function release(profile: Profile)
-	releasing[profile.Key] = (releasing[profile.Key] or 0) + 1
-	save(profile, true)
-	releasing[profile.Key] -= 1
-	if releasing[profile.Key] == 0 then
-		releasing[profile.Key] = nil
+	local key = profile.Key
+	local generation = profile.Generation
+	releasing[key] = (releasing[key] or 0) + 1
+	if not save(profile, true) and not profile.Released then
+		pendingReleases[key] = profile
+		local deadline = os.clock() + FINAL_SAVE_DEADLINE
+		local delay = 5
+		local function ours(): boolean
+			return profile.Generation == generation and not profile.Released
+		end
+		while ours() and os.clock() < deadline do
+			task.wait(if shuttingDown then 1 else delay)
+			delay = math.min(delay * 2, 30)
+			if ours() then
+				save(profile, true)
+			end
+		end
+		if pendingReleases[key] == profile then
+			pendingReleases[key] = nil
+		end
+		if ours() then
+			Errors.warn(
+				`{profile.Player.Name}'s last save kept failing for {FINAL_SAVE_DEADLINE} seconds, so their changes since the last save are lost.`
+			)
+		end
 	end
+	releasing[key] -= 1
+	if releasing[key] == 0 then
+		releasing[key] = nil
+	end
+end
+
+-- A player who rejoins this server while their last save is still being retried
+-- takes that session back, with its newest data and this server's lock.
+local function reclaim(player: Player, key: string): Profile?
+	local pending = pendingReleases[key]
+	if pending == nil then
+		return nil
+	end
+	pendingReleases[key] = nil
+	while pending.Saving do
+		pending.SaveFinished:Wait()
+	end
+	if pending.Released then
+		-- That save just landed; load it normally.
+		return nil
+	end
+	pending.Generation += 1
+	pending.Player = player
+	pending.Left = false
+	return pending
 end
 
 local function onPlayerAdded(player: Player)
@@ -447,8 +554,26 @@ local function onPlayerAdded(player: Player)
 	loading[player] = true
 	local key = KEY_PREFIX .. player.UserId
 	local deadline = os.clock() + RELEASE_WAIT
+	local reclaimed: Profile? = nil
 	while releasing[key] and os.clock() < deadline and player.Parent == Players do
+		reclaimed = reclaim(player, key)
+		if reclaimed then
+			break
+		end
 		task.wait(0.1)
+	end
+	if reclaimed then
+		loading[player] = nil
+		if player.Parent ~= Players then
+			release(reclaimed)
+			return
+		end
+		profiles[player] = reclaimed
+		if hooks then
+			hooks.OnLoaded(player)
+		end
+		Data.Loaded:Fire(player, reclaimed.Data)
+		return
 	end
 	local record: any, reason: string?, isNew = nil, "locked", false
 	if not releasing[key] then
@@ -491,6 +616,7 @@ local function onPlayerAdded(player: Player)
 	local profile: Profile = {
 		Player = player,
 		Key = key,
+		Store = store,
 		Data = record.Data,
 		Currencies = record.Currencies,
 		Values = record.Values,
@@ -505,6 +631,8 @@ local function onPlayerAdded(player: Player)
 		DataVersion = tonumber(record.DataVersion) or 0,
 		Saving = false,
 		Released = false,
+		Generation = 0,
+		Left = false,
 		SaveFinished = Signal.new(),
 	}
 	reconcile(profile.Data, template)
@@ -528,7 +656,8 @@ local function onPlayerRemoving(player: Player)
 		return
 	end
 	-- OnLeave callbacks run first, so their last changes are part of the final save.
-	if hooks then
+	if hooks and not profile.Left then
+		profile.Left = true
 		hooks.OnLeaving(player)
 	end
 	release(profile)
@@ -539,16 +668,24 @@ local function onPlayerRemoving(player: Player)
 end
 
 local function onShutdown()
+	shuttingDown = true
 	local pending = 0
 	for _, profile in profiles do
 		pending += 1
 		task.spawn(function()
+			-- Players are still in the game here; OnLeave runs now, so its changes
+			-- make it into this last save.
+			if hooks and not profile.Left then
+				profile.Left = true
+				pcall(hooks.OnLeaving, profile.Player)
+			end
 			release(profile)
 			pending -= 1
 		end)
 	end
+	-- Also wait for players who left just before and whose last save is still going.
 	local deadline = os.clock() + SHUTDOWN_TIMEOUT
-	while pending > 0 and os.clock() < deadline do
+	while (pending > 0 or next(releasing) ~= nil) and os.clock() < deadline do
 		task.wait()
 	end
 end
@@ -676,7 +813,7 @@ function Data.Erase(userId: number): boolean
 	if store == nil then
 		Errors.raise("K.Data.Erase can only run after K.Start().")
 	end
-	return request(`Erasing data for user {userId}`, "RemoveAsync", KEY_PREFIX .. userId)
+	return request(store, `Erasing data for user {userId}`, "RemoveAsync", KEY_PREFIX .. userId)
 end
 
 function Data._getProfile(player: Player): Profile?
@@ -688,6 +825,36 @@ end
 function Data._prepare(record: { [string]: any }, isNew: boolean, list: { Migration }, userId: number): (string?, string?)
 	return prepare(record, isNew, list, userId)
 end
+
+-- For tests: profiles that save to a store of their own, never the game's, and
+-- the steps that save and release them.
+Data._testing = {
+	session = SESSION_ID,
+	newProfile = function(player: Player, key: string, testStore: any): Profile
+		local profile: any = {
+			Player = player,
+			Key = key,
+			Store = testStore,
+			Data = {},
+			DataVersion = 0,
+			Saving = false,
+			Released = false,
+			Generation = 0,
+			Left = false,
+			SaveFinished = Signal.new(),
+		}
+		for _, section in SECTIONS do
+			profile[section] = {}
+		end
+		return profile
+	end,
+	save = save,
+	release = release,
+	reclaim = reclaim,
+	pending = function(key: string): Profile?
+		return pendingReleases[key]
+	end,
+}
 
 -- Starts loading and saving players, for games that use Data without the rest
 -- of Corode: require(ReplicatedStorage.Corode.Data). With Corode itself, call

@@ -57,6 +57,8 @@ local READY_ATTRIBUTE = "CorodeReady"
 -- Owner-only values go to their player through this event; a constant marker
 -- attribute tells clients the value exists without sending it to everyone.
 local OWNER_MARKER = "CorodeOwnerOnly_"
+-- Saved values that stopped fitting their rules are kept under this prefix.
+local REPLACED_PREFIX = "_Replaced_"
 local NAME_PATTERN = "^%a[%w_]*$"
 local MAX_NAME_LENGTH = 40
 -- Above this, numbers lose precision.
@@ -285,7 +287,25 @@ local function initialize(player: Player, handle: Handle)
 	local saved = store[handle.Name]
 	-- Saved data isn't checked with Validate: it was valid when it was set, and
 	-- your rules may have changed since. Use K.Data.Migrate to fix old values.
-	local value = if saved ~= nil and accepts(settings, saved, nil) then normalize(settings, saved) else settings.Default
+	local fits, reason = true, nil
+	if saved ~= nil then
+		fits, reason = accepts(settings, saved, nil)
+	end
+	if not fits then
+		-- Kept next to it, so a migration can still bring it back.
+		local backup = REPLACED_PREFIX .. handle.Name
+		if store[backup] == nil then
+			store[backup] = saved
+		end
+		Errors.warnOnce(
+			`value-reset:{handle._family.Label}:{handle.Name}`,
+			`{player.Name}'s saved {handle.Name} no longer fits its rules ({reason}), so it starts at the Default.`,
+			{
+				`The old value is kept as save.{handle._family.Section}.{backup}; a K.Data.Migrate can move it back.`,
+			}
+		)
+	end
+	local value = if saved ~= nil and fits then normalize(settings, saved) else settings.Default
 	store[handle.Name] = value
 	if settings.Replicate == "Owner" then
 		player:SetAttribute(OWNER_MARKER .. handle._family.Label .. "_" .. handle.Name, true)

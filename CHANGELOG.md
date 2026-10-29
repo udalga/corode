@@ -16,6 +16,15 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 - `K.Data.Start()` starts Data on its own, for games that use only Data.
 - A Types and packages page, including which modules work without the rest of Corode.
 
+### Fixed
+
+- A leaving player's last save that failed (three tries in about six seconds) dropped their changes since the last auto-save and kept the lock, so they couldn't join anywhere for up to 5 minutes; rejoining the same server loaded the older save. Now the data and lock stay on the server and the save retries for 3 minutes, and a player who rejoins the same server gets their newest data back.
+- One value that couldn't be saved (like a NaN in Data) stopped the whole save, currencies and items too. Now only that part keeps its last good save.
+- A save over the DataStore size limit failed on every try with only a generic warning; now it isn't sent, and the Output says how big it is (with a warning from 3 million characters).
+- Saves didn't wait for the DataStore request budget, so throttled requests used up their retries, most of all when a full server shut down.
+- When a server shut down, last saves could run before `K.Players.OnLeave` callbacks, losing what those changed.
+- A saved value that stopped fitting its rules (another type, or text over a new `MaxLength`) was silently replaced by the Default. It's now kept as `_Replaced_Name` in its section, with a warning.
+
 ### Changed
 
 - `K.Rewards` and `K.Stats` get their Before, After, Use, Middleware and Override as real fields, so they're typed.
@@ -29,6 +38,7 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 - Fewer reports from Roblox's new type solver (beta): returns and options it read differently are now explicit.
 - Tests for modules required on their own, and for packets: every type, bytes that are cut short or forged, rate limits and refusals.
 - Tests can set their own timeout: `t.it(name, body, seconds)`.
+- Tests for saving with a DataStore that fails, is full or was taken over, using profiles with stores of their own.
 - `tests/Bandwidth.spec.luau` measures what a RemoteEvent and a packet cost to send.
 
 ## 0.12.0 (2026-10-29)

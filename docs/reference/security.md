@@ -4,7 +4,7 @@
 
 - **The server decides.** Currencies, items, stats, damage, quests, rewards, purchases and admin levels are only changed on the server. Clients can only ask.
 - **Remotes are guarded.** Only the server creates them, every event is rate limited per player, and arguments are type-checked before your code runs.
-- **Data is safe to save.** Session locking stops two servers from writing the same player at once, saves retry, and the game waits for saves when it shuts down.
+- **Data is safe to save.** Session locking stops two servers from writing the same player at once, saves retry, a failed last save keeps retrying instead of being dropped, one bad value never blocks the rest of a save, and the game waits for saves when it shuts down.
 - **Duplication.** Rewards are all-or-nothing, codes and daily rewards are reserved before they are given, item use is locked while it runs, and each purchase id is given only once.
 - **No markup injection.** Labels and notifications are plain text unless you turn on `RichText` yourself.
 - **Errors stay on the server.** Problems in your server functions are logged there and never sent to clients.
