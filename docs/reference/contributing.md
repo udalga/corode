@@ -1,6 +1,6 @@
 # Working on Corode
 
-Corode's source lives in this repository as `.luau` files. [Rojo](https://rojo.space) syncs them into Studio, so the files are the source of truth.
+Corode's source lives in this repository as `.luau` files, and the files are the source of truth. [Rojo](https://rojo.space) builds them into Roblox models.
 
 ## Layout
 
@@ -8,24 +8,35 @@ Corode's source lives in this repository as `.luau` files. [Rojo](https://rojo.s
 | --- | --- |
 | `src/Corode/` | The framework. `init.luau` is the `Corode` ModuleScript, every other file is a child of it. |
 | `src/Corode/ClientBoot.server.luau` | A Script whose `RunContext` is set to `Client` by `ClientBoot.meta.json`, so it runs on every device from ReplicatedStorage. |
-| `tests/` | The test runner and specs, synced to `ServerStorage.CorodeTests`. |
+| `tests/` | The test runner and specs, which go in `ServerStorage.CorodeTests`. |
 | `default.project.json` | Builds Corode as a model (`Corode.rbxm`). |
-| `place.project.json` | Syncs Corode and the tests into a place while you work. Local scripts in `examples/` (kept out of git) are synced too when they exist. |
+| `studio.project.json` | Builds everything a development place needs into one model: Corode, the tests, the test hook, and local scripts in `examples/` (kept out of git) when they exist. |
+| `place.project.json` | The same pieces, for Rojo's live sync. |
 | `docs/` | This site. `docs/api/` is generated, so don't edit it by hand. |
 
 ## Set up
 
-1. Install [Rokit](https://github.com/rojo-rbx/rokit), then run `rokit install` in the repository. That installs the Rojo version pinned in `rokit.toml`.
-2. Install the Rojo plugin in Studio with `rojo plugin install`.
-3. Run `rojo serve place.project.json`, open your place in Studio and click **Connect** in the Rojo plugin.
+Install [Rokit](https://github.com/rojo-rbx/rokit), then run `rokit install` in the repository. That installs the Rojo version pinned in `rokit.toml`.
 
-From now on, edit the `.luau` files. Rojo updates Studio as you save. Changes made inside Studio to synced scripts are overwritten, so make them in the files instead.
+## Getting changes into Studio
 
-Rojo only manages what is listed in `place.project.json`. Your Workspace parts, the NPC templates in ServerStorage and everything else in the place are left alone.
+Edit the `.luau` files, never the scripts inside Studio. Then put the result into your place in one of two ways.
+
+**Build and replace.** Build the development bundle:
+
+```sh
+rojo build studio.project.json -o CorodeStudio.rbxm
+```
+
+It's a Folder whose children each replace the one with the same name in your place: `Corode` in ReplicatedStorage, `CorodeTests` in ServerStorage, `CorodeTestHook` and `CorodeDemo` in ServerScriptService, `CorodeHUD` in StarterPlayerScripts. Tools such as the Roblox Studio MCP server can do this with `SerializationService:DeserializeInstancesAsync`; by hand, drag the file into Studio and move each child to its place.
+
+**Live sync.** Install the Rojo plugin with `rojo plugin install`, run `rojo serve place.project.json`, and click **Connect** in the plugin. Studio then updates as you save, for as long as the server runs.
+
+Either way, only those pieces change. Your Workspace parts, the NPC templates in ServerStorage and everything else in the place are left alone.
 
 ## Tests
 
-The tests live in `tests/` and sync to `ServerStorage.CorodeTests`. `tests/Runner.luau` is a small Jest-style runner with no dependencies:
+The tests live in `tests/` and go in `ServerStorage.CorodeTests`. `tests/Runner.luau` is a small Jest-style runner with no dependencies:
 
 ```lua
 return function(t)

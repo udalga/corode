@@ -1,0 +1,12 @@
+{
+  "name": "CorodeStudio",
+  "globIgnorePaths": ["tests/TestHook.server.luau"],
+  "tree": {
+    "$className": "Folder",
+    "Corode": { "$path": "src/Corode" },
+    "CorodeTests": { "$path": "tests" },
+    "CorodeTestHook": { "$path": "tests/TestHook.server.luau" },
+    "CorodeDemo": { "$path": { "optional": "examples/CorodeDemo.server.luau" } },
+    "CorodeHUD": { "$path": { "optional": "examples/CorodeHUD.client.luau" } }
+  }
+}
