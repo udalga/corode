@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in Corode doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Corode better. The more of this you fill in, the faster it can be fixed.
+  - type: input
+    id: version
+    attributes:
+      label: Corode version
+      description: The `Version` line at the top of `ReplicatedStorage.Corode`, or the release you downloaded.
+      placeholder: "0.12.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Code that shows it
+      description: The smallest script that makes it happen. Leave out anything unrelated.
+      render: lua
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Errors or warnings from Studio's Output window (lines starting with [Corode] help most).
+      render: text
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - Studio, Play
+        - Studio, local server with several players
+        - A live game
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security
+      options:
+        - label: This isn't a security hole that exploiters could use. (If it is, don't post it here; report it privately as described in SECURITY.md.)
+          required: true

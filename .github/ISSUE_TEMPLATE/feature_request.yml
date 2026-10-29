@@ -1,0 +1,23 @@
+name: Idea or missing feature
+description: Something Corode should do, or something that's harder than it should be.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to make?
+      description: Describe the game feature, not the API you imagine. "A shop that only opens at night" helps more than "add K.Shop.Hours".
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: How do you do it today?
+      description: The code you write now with Corode (or why you can't), and what feels awkward about it.
+      render: lua
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it look?
+      description: Optional. A sketch of what you'd like to write.
+      render: lua

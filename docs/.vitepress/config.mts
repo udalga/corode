@@ -25,6 +25,14 @@ export default defineConfig({
       { text: 'Systems', link: '/systems/currency-data' },
       { text: 'API', link: '/api/' },
       { text: 'Security', link: '/reference/security' },
+      {
+        text: 'v0.12 beta',
+        items: [
+          { text: 'Changelog', link: 'https://github.com/udalga/corode/blob/main/CHANGELOG.md' },
+          { text: 'Download (releases)', link: 'https://github.com/udalga/corode/releases/latest' },
+          { text: 'Report a problem', link: 'https://github.com/udalga/corode/issues/new/choose' },
+        ],
+      },
     ],
     sidebar: {
       '/api/': [

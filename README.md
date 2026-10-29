@@ -2,6 +2,8 @@
 
 # Corode
 
+> **Beta.** Corode is version 0.x: tested in Studio, including two-player servers, but not yet proven in a live game at scale. Please [report anything that breaks](https://github.com/udalga/corode/issues/new/choose).
+
 An all-in-one Roblox framework that reads like plain English: currencies, data, items, combat, NPCs, quests, shops, global leaderboards, anti-cheat, admin commands, analytics, UI and input. Every system is customizable from code, and the server is always in charge.
 
 ```lua

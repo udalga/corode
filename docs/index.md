@@ -27,6 +27,10 @@ features:
     details: Data, inventories, combat, NPC brains, quests, shop, global leaderboards, anti-cheat, admin commands, analytics, UI and input.
 ---
 
+::: warning Beta
+Corode is version 0.x: tested in Studio, including two-player servers, but not yet proven in a live game at scale. Try it in your games and [report anything that breaks](https://github.com/udalga/corode/issues/new/choose).
+:::
+
 ```lua
 local K = require(game.ReplicatedStorage.Corode)
 

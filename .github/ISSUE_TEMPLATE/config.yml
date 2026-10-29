@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://udalga.github.io/corode/
+    about: Guides, building blocks, recipes and the full API reference.
+  - name: Getting started
+    url: https://udalga.github.io/corode/guide/getting-started
+    about: Install Corode and write your first script.
