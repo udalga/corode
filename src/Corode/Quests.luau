@@ -283,6 +283,11 @@ function startObjective(player: Player, id: string, index: number)
 		end
 		local clamped = math.clamp(math.floor(value), 0, objective.Amount)
 		if active.Progress[index] ~= clamped then
+			-- Objectives added to a quest after it started would leave gaps, and a
+			-- list with gaps can't be saved.
+			for missing = #active.Progress + 1, index - 1 do
+				active.Progress[missing] = 0
+			end
 			active.Progress[index] = clamped
 			Quests.Progressed:Fire(player, id, index, clamped)
 			afterProgress(player, id)

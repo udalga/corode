@@ -189,10 +189,19 @@ local function findUnsaveable(value: any, path: string, seen: { [any]: boolean }
 			return `{path} contains itself`
 		end
 		seen[value] = true
-		local count = 0
+		-- Saved tables must be either a list (1, 2, 3... with no gaps) or use only
+		-- named keys. Counted key by key, since # can miss a gap.
+		local numbered, named, highest = 0, 0, 0
 		for key, child in value do
-			count += 1
-			if type(key) ~= "string" and type(key) ~= "number" then
+			if type(key) == "number" then
+				if key % 1 ~= 0 or key < 1 then
+					return `{path} uses the key {tostring(key)}; list keys must be whole numbers from 1`
+				end
+				numbered += 1
+				highest = math.max(highest, key)
+			elseif type(key) == "string" then
+				named += 1
+			else
 				return `{path} uses {Errors.describe(key)} as a key; only text and number keys can be saved`
 			end
 			local problem = findUnsaveable(child, childPath(path, key), seen)
@@ -200,13 +209,10 @@ local function findUnsaveable(value: any, path: string, seen: { [any]: boolean }
 				return problem
 			end
 		end
-		-- Saved tables must be either a list (1, 2, 3...) or use only named keys.
-		if count ~= #value then
-			for key in value do
-				if type(key) ~= "string" then
-					return `{path} mixes numbered and named keys, or its numbers have gaps`
-				end
-			end
+		if numbered > 0 and named > 0 then
+			return `{path} mixes numbered and named keys`
+		elseif highest ~= numbered then
+			return `{path} is a list with gaps (it goes up to {highest} but has {numbered} items)`
 		end
 		seen[value] = nil
 	elseif kind ~= "boolean" and kind ~= "nil" then
@@ -428,6 +434,7 @@ local function save(profile: Profile, release: boolean): boolean
 	-- Each part is checked on its own, so one value that can't be saved doesn't
 	-- stop the rest (coins, items, quests...) from saving.
 	local saving: { [string]: any } = {}
+	local complete = true
 	for _, field in FIELDS do
 		local value = (profile :: any)[field]
 		local problem = findUnsaveable(value, if field == "Data" then "data" else string.lower(field), {})
@@ -435,6 +442,7 @@ local function save(profile: Profile, release: boolean): boolean
 			Errors.warnOnce(`unsaveable:{problem}`, `Couldn't save {player.Name}'s {field}: {problem}.`, {
 				`Their last good {field} is kept until this is fixed; everything else still saves.`,
 			})
+			complete = false
 		else
 			saving[field] = value
 		end
@@ -450,6 +458,7 @@ local function save(profile: Profile, release: boolean): boolean
 			}
 		)
 		table.clear(saving)
+		complete = false
 	elseif length > LARGE_RECORD_SIZE then
 		Errors.warnOnce(`large:{profile.Key}`, `{player.Name}'s data is {length} characters; saves fail above {MAX_RECORD_SIZE}.`, {
 			"Store less per player before it reaches the limit.",
@@ -465,12 +474,21 @@ local function save(profile: Profile, release: boolean): boolean
 			return nil
 		end
 		lost = false
-		for field, value in saving do
-			record[field] = value
+		-- After a migration this session, saving only some parts would mix migrated
+		-- and unmigrated data, and the migration would run again on the mix. So a
+		-- save with a part missing writes only when the versions already match,
+		-- and the version only moves with a complete save.
+		local savedVersion = tonumber(record.DataVersion) or 0
+		if complete or profile.DataVersion == savedVersion then
+			for field, value in saving do
+				record[field] = value
+			end
+		end
+		if complete then
+			record.DataVersion = profile.DataVersion
 		end
 		record.Lock = if release then nil else { Session = SESSION_ID, Time = os.time() }
 		record.Version = FORMAT_VERSION
-		record.DataVersion = profile.DataVersion
 		return record
 	end)
 
@@ -810,8 +828,12 @@ end
 -- Permanently deletes a user's saved data (for example for a data deletion request). Yields.
 function Data.Erase(userId: number): boolean
 	Errors.expect(userId, "number", "the user id", "K.Data.Erase")
-	if store == nil then
+	if hooks == nil then
 		Errors.raise("K.Data.Erase can only run after K.Start().")
+	end
+	-- Right after K.Start() the store may still be getting ready.
+	while store == nil do
+		task.wait()
 	end
 	return request(store, `Erasing data for user {userId}`, "RemoveAsync", KEY_PREFIX .. userId)
 end

@@ -72,6 +72,44 @@ return function(t)
 			expect(store.Record.Data).toEqual({ Level = 1 })
 		end)
 
+		it("refuses lists with gaps or mixed keys, even when # would hide it", function()
+			local player = Helpers.player(t)
+			for _, broken in { { "a", "b", nil, "d", Name = "x" }, { [1] = "a", [3] = "c" }, { [0] = "a", [1] = "b" }, { [1.5] = "a" } } do
+				local store = fakeStore(lockedRecord())
+				local profile = Testing.newProfile(player, Helpers.unique("Key"), store)
+				profile.Data = { Level = 3, List = broken }
+				Testing.save(profile, false)
+				expect(store.Record.Data).toEqual({ Level = 1 })
+			end
+			local store = fakeStore(lockedRecord())
+			local profile = Testing.newProfile(player, Helpers.unique("Key"), store)
+			profile.Data = { Level = 3, List = { "a", "b", "c" } }
+			Testing.save(profile, false)
+			expect(store.Record.Data).toEqual({ Level = 3, List = { "a", "b", "c" } })
+		end)
+
+		it("writes nothing after a migration when a part can't be saved", function()
+			local player = Helpers.player(t)
+			local record = lockedRecord()
+			record.DataVersion = 1
+			local store = fakeStore(record)
+			local profile = Testing.newProfile(player, Helpers.unique("Key"), store)
+			-- This session migrated to version 2, then Data got a value that can't be saved.
+			profile.DataVersion = 2
+			profile.Data = { Level = 5, Broken = 0 / 0 }
+			profile.Currencies = { Gold = 10 }
+			expect(Testing.save(profile, false)).toBe(true)
+			expect(store.Record.DataVersion).toBe(1)
+			expect(store.Record.Currencies).toEqual({ Coins = 10 })
+			expect(store.Record.Data).toEqual({ Level = 1 })
+
+			-- Once everything can be saved, it all goes in with the new version.
+			profile.Data = { Level = 5 }
+			expect(Testing.save(profile, false)).toBe(true)
+			expect(store.Record.DataVersion).toBe(2)
+			expect(store.Record.Currencies).toEqual({ Gold = 10 })
+		end)
+
 		it("doesn't write data over the DataStore's size limit, but keeps the lock", function()
 			local player = Helpers.player(t)
 			local store = fakeStore(lockedRecord())

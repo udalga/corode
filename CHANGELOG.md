@@ -23,6 +23,10 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 - A save over the DataStore size limit failed on every try with only a generic warning; now it isn't sent, and the Output says how big it is (with a warning from 3 million characters).
 - Saves didn't wait for the DataStore request budget, so throttled requests used up their retries, most of all when a full server shut down.
 - When a server shut down, last saves could run before `K.Players.OnLeave` callbacks, losing what those changed.
+- After a migration, a save that had to skip a part (a value that can't be saved, or data over the size limit) still moved the save's version forward, so the old part was never migrated, and saved the other parts migrated, so the migration could run twice on them. Such a save now writes nothing but the lock until every part can be saved.
+- Tables like `{ "a", "b", nil, "d", Name = "x" }` passed the save check when `#` happened to match, then failed in the DataStore. Lists are now checked key by key: whole numbers from 1 with no gaps, or only named keys.
+- Quest progress could get a gap (and stop the Quests section from saving) when objectives were added to a quest players had already started.
+- `K.Data.Erase` right after `K.Start()` raised an error while the DataStore was still getting ready; it waits for it now.
 - A saved value that stopped fitting its rules (another type, or text over a new `MaxLength`) was silently replaced by the Default. It's now kept as `_Replaced_Name` in its section, with a warning.
 
 ### Changed
