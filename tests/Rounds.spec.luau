@@ -256,14 +256,21 @@ return function(t)
 			expect(K.Currency.Get(player, currency)).toBe(15)
 		end)
 
-		it("ends an elimination round when the last player is out", function()
-			local player, round = start({ Mode = "Elimination", Duration = 30 })
-			expect(round:Eliminate(player)).toBe(true)
-			expect(K.Rounds.IsAlive(player)).toBe(false)
+		it("ends an elimination round when one player is left (or none, alone)", function()
+			local _, round, info = start({ Mode = "Elimination", Duration = 30 })
+			local participants = info.Players
+			-- Alone, the round ends once you're out; with others, once one is left.
+			local last = if #participants > 1 then participants[#participants] else nil
+			for _, participant in participants do
+				if participant ~= last then
+					expect(round:Eliminate(participant)).toBe(true)
+					expect(K.Rounds.IsAlive(participant)).toBe(false)
+				end
+			end
 			local ended = waitFor(round.Ended, 3)
 			expect(ended).toBeTruthy()
 			expect(ended and ended[2].Reason).toBe("LastStanding")
-			expect(ended and #ended[2].Winners).toBe(0)
+			expect(ended and ended[2].Winners).toEqual(if last then { last } else {})
 		end)
 
 		it("can be ended early with chosen winners", function()

@@ -58,6 +58,8 @@ game.ServerStorage.CorodeTests:SetAttribute("RunRequest", tostring(os.clock()) .
 
 The summary appears in the Output and in the folder's `RunResult` attribute. Put a filter after the `|` (like `"1|Economy"`) to run only matching specs.
 
+**With two players.** `MultiPlayer.spec` (teams against each other, friendly fire, a team round, admin levels) skips unless two players are loaded. Start a local server with two players (Test → Clients and Servers), then run the same line in the server window. On that server the test players aren't the game's owner, so tests that need an owner skip there.
+
 Why the attribute? The command bar has its own copy of every module, so `require(Corode)` there gets a Corode that never started. `tests/TestHook.server.luau` (synced as `ServerScriptService.CorodeTestHook`) runs the tests inside the game instead, with the real players. It does nothing outside Studio.
 
 **On every push.** GitHub Actions runs the tests on Roblox's own servers through [Open Cloud Luau execution](https://create.roblox.com/docs/cloud/reference/features/luau-execution). It builds `tests.project.json` (this commit's Corode plus the tests) into a model, sends it as the task's binary input, and `scripts/cloud-test-task.luau` swaps it into the place for that task only. Nothing is published and the place never changes. There are no players there, so tests that need one are skipped; run those in Studio.

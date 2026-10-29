@@ -33,13 +33,28 @@ return function(t)
 		end)
 	end)
 
+	-- The loaded player with the highest admin level; skips when nobody has one (on
+	-- a local test server, the test players aren't the game's owner).
+	local function admin(): Player
+		local best = nil
+		for _, player in game:GetService("Players"):GetPlayers() do
+			if K.Players.IsReady(player) and (best == nil or K.Admin.LevelOf(player) > K.Admin.LevelOf(best)) then
+				best = player
+			end
+		end
+		if best == nil or K.Admin.LevelOf(best) < 1 then
+			t.skip("needs a player with an admin level (the game's owner, in Studio's Play)")
+		end
+		return best :: Player
+	end
+
 	describe("commands", function()
 		t.beforeEach(function()
 			received = nil
 		end)
 
 		it("parses arguments and returns the message", function()
-			local player = Helpers.player(t)
+			local player = admin()
 			local ok, message = K.Admin.Run(player, `/{commandName} 42 hello there`)
 			expect(ok).toBe(true)
 			expect(message).toBe("echoed")
@@ -47,15 +62,16 @@ return function(t)
 		end)
 
 		it("skips an optional argument that is left out", function()
-			local player = Helpers.player(t)
+			local player = admin()
 			K.Admin.Run(player, `/{commandName} 7`)
 			expect(received).toEqual({ 7 })
 		end)
 
 		it("rejects arguments of the wrong type", function()
-			local player = Helpers.player(t)
-			local ok = K.Admin.Run(player, `/{commandName} seven`)
+			local player = admin()
+			local ok, message = K.Admin.Run(player, `/{commandName} seven`)
 			expect(ok).toBe(false)
+			expect(message).never.toContain("permission")
 			expect(received).toBeNil()
 		end)
 

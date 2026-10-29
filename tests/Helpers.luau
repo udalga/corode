@@ -35,6 +35,24 @@ function Helpers.player(t): Player
 	error("unreachable")
 end
 
+-- `count` loaded players, or skips the test (start a local server with that many
+-- players from Studio's Test tab to run it).
+function Helpers.players(t, count: number): { Player }
+	local ready = {}
+	for _, player in Players:GetPlayers() do
+		if Helpers.K.Players.IsReady(player) then
+			table.insert(ready, player)
+		end
+	end
+	if #ready < count then
+		t.skip(`needs {count} loaded players (Test → Clients and Servers)`)
+	end
+	table.sort(ready, function(a, b)
+		return a.UserId < b.UserId
+	end)
+	return table.move(ready, 1, count, 1, {})
+end
+
 -- The error message a function raises, or nil when it doesn't raise.
 function Helpers.errorOf(fn: () -> ()): string?
 	local ok, problem = pcall(fn)

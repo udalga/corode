@@ -6,6 +6,10 @@
 
 - K.Machine runs every machine from one shared loop instead of a thread per machine. Machines now tick at their exact `Tick` rate (before, they ran about 13% slow) and use less memory, so thousands of private machines are fine.
 
+### Project
+
+- Two-player tests for teams, friendly fire, team rounds and admin levels, run on a local two-player server. Older tests no longer assume a single player who owns the game.
+
 ## 0.11.0 (2026-10-29)
 
 Corode now gives you building blocks to make your own systems, and its ready-made systems are built on or opened up with them.
