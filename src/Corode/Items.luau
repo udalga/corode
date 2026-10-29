@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Items
 	The list of every item in your game. Define each item once in a server
@@ -88,7 +89,7 @@ function Items.Define(id: string, fields: { [string]: any }?)
 	if definitions[id] then
 		Errors.raise(`Item "{id}" is defined twice.`, { "Each item needs only one K.Items.Define." })
 	end
-	local settings = fields or {}
+	local settings: { [string]: any } = fields or {}
 	Errors.expect(settings, "table", "the item's fields", "K.Items.Define")
 	for key, value in settings do
 		if type(key) ~= "string" then

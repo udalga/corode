@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Hooks
 	Gives your own operations the same Before, After, Use and Override steps that
@@ -36,21 +37,35 @@ local Errors = require(script.Parent.Util.Errors)
 local Methods = require(script.Parent.Util.Methods)
 local Pipeline = require(script.Parent.Util.Pipeline)
 
+export type Context = Pipeline.Context
+
+export type Hooks = {
+	Name: string,
+	Before: (self: Hooks, callback: (Context) -> (), priority: number?) -> () -> (),
+	After: (self: Hooks, callback: (Context) -> ()) -> () -> (),
+	Use: (self: Hooks, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Middleware: (self: Hooks, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (self: Hooks, callback: (Context) -> boolean?) -> (),
+	Run: (self: Hooks, ctx: Context?) -> (boolean, Context),
+}
+
+type HooksData = { Name: string, _pipeline: Pipeline.Pipeline }
+
 local Hooks = {}
 
 local HookMethods = {}
 
-function HookMethods.Before(hooks, callback: (any) -> (), priority: number?): () -> ()
+function HookMethods.Before(hooks: HooksData, callback: (any) -> (), priority: number?): () -> ()
 	Errors.expect(callback, "function", "the callback", `{hooks.Name}:Before()`)
 	return hooks._pipeline:Before(callback, priority)
 end
 
-function HookMethods.After(hooks, callback: (any) -> ()): () -> ()
+function HookMethods.After(hooks: HooksData, callback: (any) -> ()): () -> ()
 	Errors.expect(callback, "function", "the callback", `{hooks.Name}:After()`)
 	return hooks._pipeline:After(callback)
 end
 
-function HookMethods.Use(hooks, callback: (any, () -> ()) -> (), priority: number?): () -> ()
+function HookMethods.Use(hooks: HooksData, callback: (any, () -> ()) -> (), priority: number?): () -> ()
 	Errors.expect(callback, "function", "the callback", `{hooks.Name}:Use()`)
 	return hooks._pipeline:Use(callback, priority)
 end
@@ -58,46 +73,57 @@ end
 HookMethods.Middleware = HookMethods.Use
 
 -- Replaces the operation. Return false (or ctx:Cancel) to fail.
-function HookMethods.Override(hooks, callback: (any) -> boolean?)
+function HookMethods.Override(hooks: HooksData, callback: (any) -> boolean?)
 	Errors.expect(callback, "function", "the callback", `{hooks.Name}:Override()`)
 	hooks._pipeline:Override(callback)
 end
 
 -- Runs the operation with `ctx` (a table you fill). Returns (succeeded, ctx);
 -- when it fails, ctx.Reason says why if a hook gave one.
-function HookMethods.Run(hooks, ctx: { [string]: any }?): (boolean, { [string]: any })
-	local context = ctx or {}
+function HookMethods.Run(hooks: HooksData, ctx: Context?): (boolean, Context)
+	local context: Context = ctx or {}
 	Errors.expect(context, "table", "the context", `{hooks.Name}:Run()`)
 	local ok = hooks._pipeline:Run(context)
 	return ok and not context.Cancelled, context
 end
 
 -- K.Hooks(name, operation) is the same as K.Hooks.new(name, operation).
-function Hooks.new(name: string, operation: ((any) -> boolean?)?)
+function Hooks.new(name: string, operation: ((Context) -> boolean?)?): Hooks
 	Errors.expect(name, "string", "the name", "K.Hooks")
 	if operation ~= nil then
 		Errors.expect(operation, "function", "the operation", "K.Hooks")
 	end
-	local run = operation or function() end
-	local hooks = {
+	local run: (Context) -> boolean? = operation or function()
+		return nil
+	end
+	local hooks: HooksData = {
 		Name = name,
 		_pipeline = Pipeline.new(name, function(ctx)
 			-- Cancelling inside the operation itself also counts as failing.
 			return run(ctx) ~= false and not ctx.Cancelled
 		end),
 	}
-	return Methods.build(hooks, HookMethods, `Hooks "{name}"`)
+	return Methods.build(hooks, HookMethods, `Hooks "{name}"`) :: any
 end
 
--- For Corode's systems: adds Before, After, Use, Middleware and Override(operation, ...)
--- to `target`, one K.Hooks per operation, like K.Rewards.Before("Give", fn).
-function Hooks._expose(target: { [string]: any }, label: string, operations: { [string]: any })
+-- Before, After, Use, Middleware and Override that take the operation first,
+-- like K.Rewards.Before("Give", fn).
+export type Exposed = {
+	Before: (operation: string, callback: (Context) -> (), priority: number?) -> () -> (),
+	After: (operation: string, callback: (Context) -> ()) -> () -> (),
+	Use: (operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Middleware: (operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (operation: string, callback: (Context) -> boolean?) -> (),
+}
+
+-- For Corode's systems: the Exposed functions for a set of K.Hooks, one per operation.
+function Hooks._expose(label: string, operations: { [string]: any }): Exposed
 	local names = {}
 	for name in operations do
 		table.insert(names, name)
 	end
 	table.sort(names)
-	local function get(operation: any, functionName: string)
+	local function get(operation: any, functionName: string): Hooks
 		local hooks = operations[operation]
 		if hooks == nil then
 			Errors.raise(
@@ -107,23 +133,26 @@ function Hooks._expose(target: { [string]: any }, label: string, operations: { [
 		end
 		return hooks
 	end
-	target.Before = function(operation: string, callback: (any) -> (), priority: number?): () -> ()
-		return get(operation, `{label}.Before`):Before(callback, priority)
-	end
-	target.After = function(operation: string, callback: (any) -> ()): () -> ()
-		return get(operation, `{label}.After`):After(callback)
-	end
-	target.Use = function(operation: string, callback: (any, () -> ()) -> (), priority: number?): () -> ()
+	local function use(operation: string, callback: (Context, () -> ()) -> (), priority: number?): () -> ()
 		return get(operation, `{label}.Use`):Use(callback, priority)
 	end
-	target.Middleware = target.Use
-	target.Override = function(operation: string, callback: (any) -> boolean?)
-		get(operation, `{label}.Override`):Override(callback)
-	end
+	return {
+		Before = function(operation: string, callback: (Context) -> (), priority: number?): () -> ()
+			return get(operation, `{label}.Before`):Before(callback, priority)
+		end,
+		After = function(operation: string, callback: (Context) -> ()): () -> ()
+			return get(operation, `{label}.After`):After(callback)
+		end,
+		Use = use,
+		Middleware = use,
+		Override = function(operation: string, callback: (Context) -> boolean?)
+			get(operation, `{label}.Override`):Override(callback)
+		end,
+	}
 end
 
 return setmetatable(Hooks, {
-	__call = function(_, name: string, operation: ((any) -> boolean?)?)
+	__call = function(_, name: string, operation: ((Context) -> boolean?)?): Hooks
 		return Hooks.new(name, operation)
 	end,
 	__index = function(_, key)

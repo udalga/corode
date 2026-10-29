@@ -11,6 +11,7 @@ permissions:
 
 env:
   ROJO_VERSION: 7.7.1
+  LUAU_LSP_VERSION: 1.70.1
 
 jobs:
   build:
@@ -36,6 +37,27 @@ jobs:
         with:
           name: Corode
           path: Corode.rbxm
+
+  # Every module is --!strict; this fails on any type error.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rojo and luau-lsp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v$ROJO_VERSION" -R rojo-rbx/rojo -p "rojo-$ROJO_VERSION-linux-x86_64.zip" -D "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/rojo-$ROJO_VERSION-linux-x86_64.zip" -d "$RUNNER_TEMP/rojo"
+          echo "$RUNNER_TEMP/rojo" >> "$GITHUB_PATH"
+          gh release download "$LUAU_LSP_VERSION" -R JohnnyMorganz/luau-lsp -p luau-lsp-linux-x86_64.zip -D "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/luau-lsp-linux-x86_64.zip" -d "$RUNNER_TEMP/luau-lsp"
+          echo "$RUNNER_TEMP/luau-lsp" >> "$GITHUB_PATH"
+          curl -sSfL -o "$RUNNER_TEMP/globalTypes.d.luau" "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/$LUAU_LSP_VERSION/scripts/globalTypes.None.d.luau"
+
+      - name: Type check
+        run: DEFS="$RUNNER_TEMP/globalTypes.d.luau" TMPDIR="$RUNNER_TEMP" sh scripts/typecheck.sh
 
   # Runs the tests on Roblox servers through Open Cloud. Skipped until the
   # ROBLOX_API_KEY secret exists, and on pull requests from forks.
@@ -79,7 +101,7 @@ jobs:
           echo "::notice::Tests skipped. Add the ROBLOX_API_KEY secret to run them on Roblox."
 
   release:
-    needs: [build, test]
+    needs: [build, typecheck, test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -92,6 +114,11 @@ jobs:
           version=$(grep -oP 'Version = "\K[^"]+' src/Corode/init.luau)
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::src/Corode/init.luau says $version but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+          wallyVersion=$(grep -oP '^version = "\K[^"]+' wally.toml)
+          if [ "v$wallyVersion" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::wally.toml says $wallyVersion but the tag is $GITHUB_REF_NAME"
             exit 1
           fi
 

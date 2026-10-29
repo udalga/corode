@@ -1,3 +1,4 @@
+--!strict
 --[[
 	UI
 	Build interfaces in code. Any property can be a State: when the State
@@ -51,6 +52,9 @@ local Inventory = require(script.Parent.Inventory)
 local Machine = require(script.Parent.Machine)
 local Quests = require(script.Parent.Quests)
 local Reactive = require(script.Parent.Util.Reactive)
+
+-- A value your UI follows: K.UI.State, Computed, Animated and the From... helpers return one.
+export type State = Reactive.State
 local Rounds = require(script.Parent.Rounds)
 local Shared = require(script.Parent.Shared)
 local Stats = require(script.Parent.Stats)
@@ -178,15 +182,15 @@ local function applyShortcuts(instance: Instance, props: { [string]: any })
 				CellPadding = UDim2.new(gap, gap),
 				CellSize = props.CellSize or UDim2.fromOffset(72, 72),
 				SortOrder = Enum.SortOrder.LayoutOrder,
-				HorizontalAlignment = Enum.HorizontalAlignment[ALIGNMENTS[align]],
+				HorizontalAlignment = (Enum.HorizontalAlignment :: any)[ALIGNMENTS[align]],
 			})
 		else
 			addChild(instance, "UIListLayout", {
 				FillDirection = if layout == "Vertical" then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal,
 				Padding = gap,
 				SortOrder = Enum.SortOrder.LayoutOrder,
-				HorizontalAlignment = Enum.HorizontalAlignment[ALIGNMENTS[align]],
-				VerticalAlignment = Enum.VerticalAlignment[VERTICAL_ALIGNMENTS[align]],
+				HorizontalAlignment = (Enum.HorizontalAlignment :: any)[ALIGNMENTS[align]],
+				VerticalAlignment = (Enum.VerticalAlignment :: any)[VERTICAL_ALIGNMENTS[align]],
 			})
 		end
 	end
@@ -279,8 +283,8 @@ local function build(className: string, props: { [any]: any }, functionName: str
 				if not exists then
 					local candidates = {}
 					for _, name in COMMON_PROPS do
-						local member = if string.sub(name, 1, 2) == "On" then string.sub(name, 3) else name
-						if SHORTCUTS[name] or name == "OnClick" or (getMember(instance, member)) then
+						local memberName = if string.sub(name, 1, 2) == "On" then string.sub(name, 3) else name
+						if SHORTCUTS[name] or name == "OnClick" or (getMember(instance, memberName)) then
 							table.insert(candidates, name)
 						end
 					end
@@ -453,7 +457,7 @@ end
 
 -- A progress bar. Value goes from 0 (empty) to 1 (full) and can be a State.
 function UI.Bar(props: { [any]: any }?): Frame
-	local settings = table.clone(props or {})
+	local settings: { [any]: any } = table.clone(props or {})
 	local value = if settings.Value == nil then 0 else settings.Value
 	local fillColor = settings.Color or UI.Theme.Accent
 	settings.Value = nil
@@ -710,5 +714,8 @@ function UI.FromHealth()
 	healthState = state
 	return state
 end
+
+-- The real module type, for init (the early return above is typed any).
+export type Module = typeof(UI)
 
 return Errors.strict(UI, "K.UI")

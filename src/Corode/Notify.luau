@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Notify
 	Small pop-up messages at the bottom of the screen.

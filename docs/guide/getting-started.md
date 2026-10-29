@@ -11,6 +11,8 @@ Version 0.x. It's tested in Studio, including two-player servers, but hasn't run
 
 No other setup is needed: Corode starts its client side on every player's device by itself.
 
+Using [Wally](https://wally.run)? Add `Corode = "udalga/corode@0.13.0"` instead; see [Types and packages](../reference/types-packages).
+
 To save player data while testing in Studio, turn on Game Settings → Security → *Enable Studio Access to API Services* (the place must be published). Without it, data lives in memory and the Output says so.
 
 ## 2. Your first script

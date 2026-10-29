@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Pipeline
 	Runs an operation through middleware, then its core action, then "after"
@@ -16,11 +17,32 @@ local Errors = require(script.Parent.Errors)
 
 export type Context = { [string]: any }
 
+export type Pipeline = {
+	Name: string,
+	Use: (self: Pipeline, middleware: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Before: (self: Pipeline, callback: (Context) -> (), priority: number?) -> () -> (),
+	After: (self: Pipeline, callback: (Context) -> ()) -> () -> (),
+	Override: (self: Pipeline, core: (Context) -> boolean?) -> (),
+	Run: (self: Pipeline, ctx: Context) -> boolean,
+}
+
+type Middleware = { Run: (Context, () -> ()) -> (), Priority: number, Order: number }
+type AfterEntry = { Run: (Context) -> () }
+
+type State = {
+	Name: string,
+	_core: (Context) -> boolean?,
+	_middleware: { Middleware },
+	_after: { AfterEntry },
+	_added: number,
+}
+
 local Pipeline = {}
 Pipeline.__index = Pipeline
 
-function Pipeline.new(name: string, core: (Context) -> boolean?)
-	return setmetatable({ Name = name, _core = core, _middleware = {}, _after = {}, _added = 0 }, Pipeline)
+function Pipeline.new(name: string, core: (Context) -> boolean?): Pipeline
+	local state: State = { Name = name, _core = core, _middleware = {}, _after = {}, _added = 0 }
+	return setmetatable(state, Pipeline) :: any
 end
 
 local function remover(list: { any }, entry: any): () -> ()
@@ -32,9 +54,9 @@ local function remover(list: { any }, entry: any): () -> ()
 	end
 end
 
-function Pipeline:Use(middleware: (Context, () -> ()) -> (), priority: number?): () -> ()
+function Pipeline.Use(self: State, middleware: (Context, () -> ()) -> (), priority: number?): () -> ()
 	self._added += 1
-	local entry = { Run = middleware, Priority = priority or 0, Order = self._added }
+	local entry: Middleware = { Run = middleware, Priority = priority or 0, Order = self._added }
 	table.insert(self._middleware, entry)
 	table.sort(self._middleware, function(a, b)
 		if a.Priority ~= b.Priority then
@@ -45,25 +67,25 @@ function Pipeline:Use(middleware: (Context, () -> ()) -> (), priority: number?):
 	return remover(self._middleware, entry)
 end
 
-function Pipeline:Before(callback: (Context) -> (), priority: number?): () -> ()
-	return self:Use(function(ctx, nextStep)
+function Pipeline.Before(self: State, callback: (Context) -> (), priority: number?): () -> ()
+	return Pipeline.Use(self, function(ctx, nextStep)
 		callback(ctx)
 		nextStep()
 	end, priority)
 end
 
-function Pipeline:After(callback: (Context) -> ()): () -> ()
-	local entry = { Run = callback }
+function Pipeline.After(self: State, callback: (Context) -> ()): () -> ()
+	local entry: AfterEntry = { Run = callback }
 	table.insert(self._after, entry)
 	return remover(self._after, entry)
 end
 
-function Pipeline:Override(core: (Context) -> boolean?)
+function Pipeline.Override(self: State, core: (Context) -> boolean?)
 	self._core = core
 end
 
 -- Runs the operation. Returns true when the core action ran and didn't return false.
-function Pipeline:Run(ctx: Context): boolean
+function Pipeline.Run(self: State, ctx: Context): boolean
 	ctx.Cancelled = false
 	-- Works as both ctx:Cancel("reason") and ctx.Cancel("reason").
 	ctx.Cancel = function(first, second)

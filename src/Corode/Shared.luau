@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Shared
 	One value for the whole server that every client can read: the weather, the
@@ -39,6 +40,25 @@ local MAX_NAME_LENGTH = 40
 local MAX_TEXT_LENGTH = 1000
 local OPTIONS = { Default = "number|string|boolean", Min = "number", Max = "number", Validate = "function" }
 
+export type Shared = {
+	Name: string,
+	Changed: Signal.Signal,
+	Get: (self: Shared) -> any,
+	Set: (self: Shared, value: any) -> (boolean, any, string?),
+	Add: (self: Shared, amount: number) -> (boolean, any, string?),
+	OnChanged: (self: Shared, callback: (any, any) -> ()) -> Signal.Connection,
+}
+
+type Settings = {
+	Kind: string,
+	Default: any,
+	Min: number,
+	Max: number,
+	Validate: ((any) -> (boolean, string?))?,
+}
+
+type Handle = { Name: string, Changed: Signal.Signal, _settings: Settings }
+
 local Shared = {}
 
 local handles: { [string]: any } = {}
@@ -59,7 +79,7 @@ local function folder(wait: boolean?): Instance?
 	return created
 end
 
-local function accepts(handle, value: any): (boolean, string?)
+local function accepts(handle: Handle, value: any): (boolean, string?)
 	local settings = handle._settings
 	if typeof(value) ~= settings.Kind then
 		return false, `{handle.Name} holds {settings.Kind}, not {Errors.describe(value)}`
@@ -85,7 +105,7 @@ end
 
 local Methods_ = {}
 
-function Methods_.Get(handle): any
+function Methods_.Get(handle: Handle): any
 	local holder = folder()
 	local value = holder and holder:GetAttribute(handle.Name)
 	if value == nil then
@@ -95,7 +115,7 @@ function Methods_.Get(handle): any
 end
 
 -- Server: changes the value. Returns (changed, value, reasonIfNot).
-function Methods_.Set(handle, value: any): (boolean, any, string?)
+function Methods_.Set(handle: Handle, value: any): (boolean, any, string?)
 	if not IS_SERVER then
 		Errors.raise(`{handle.Name}:Set() only works in a server Script.`, { "Ask the server with K.Action." })
 	end
@@ -113,7 +133,7 @@ function Methods_.Set(handle, value: any): (boolean, any, string?)
 end
 
 -- Server: adds to a number (use a negative amount to subtract).
-function Methods_.Add(handle, amount: number): (boolean, any, string?)
+function Methods_.Add(handle: Handle, amount: number): (boolean, any, string?)
 	if handle._settings.Kind ~= "number" then
 		Errors.raise(`{handle.Name}:Add() only works for numbers; {handle.Name} holds {handle._settings.Kind}.`)
 	end
@@ -124,12 +144,12 @@ function Methods_.Add(handle, amount: number): (boolean, any, string?)
 end
 
 -- callback(new, old) on every change, on the server and on clients.
-function Methods_.OnChanged(handle, callback: (any, any) -> ())
+function Methods_.OnChanged(handle: Handle, callback: (any, any) -> ()): Signal.Connection
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:OnChanged()`)
 	return handle.Changed:Connect(callback)
 end
 
-local function listen(handle)
+local function listen(handle: Handle)
 	task.spawn(function()
 		local holder = folder(true) :: Instance
 		local last = Methods_.Get(handle)
@@ -150,7 +170,7 @@ local function checkName(name: any, functionName: string)
 	end
 end
 
-local function buildSettings(name: string, given: any, functionName: string)
+local function buildSettings(name: string, given: any, functionName: string): Settings
 	local options = if type(given) == "table" then given else { Default = given }
 	Errors.checkOptions(options, OPTIONS, functionName)
 	local default = if options.Default == nil then 0 else options.Default
@@ -158,17 +178,18 @@ local function buildSettings(name: string, given: any, functionName: string)
 	if kind ~= "number" and (options.Min ~= nil or options.Max ~= nil) then
 		Errors.raise(`{functionName}("{name}"): Min and Max only work for numbers.`)
 	end
-	return table.freeze({
+	local settings: Settings = {
 		Kind = kind,
 		Default = default,
 		Min = options.Min or -math.huge,
 		Max = options.Max or math.huge,
 		Validate = options.Validate,
-	})
+	}
+	return table.freeze(settings)
 end
 
 -- K.Shared(name, default or options) is the same as K.Shared.Define.
-function Shared.Define(name: string, default: any)
+function Shared.Define(name: string, default: any): Shared
 	checkName(name, "K.Shared")
 	local existing = handles[name]
 	if existing then
@@ -178,7 +199,7 @@ function Shared.Define(name: string, default: any)
 		return existing
 	end
 	local settings = buildSettings(name, default, "K.Shared")
-	local handle = Methods.build({ Name = name, Changed = Signal.new(), _settings = settings }, Methods_, `Shared "{name}"`)
+	local handle: Handle = Methods.build({ Name = name, Changed = Signal.new(), _settings = settings }, Methods_, `Shared "{name}"`)
 	if IS_SERVER then
 		local ok, reason = accepts(handle, settings.Default)
 		if not ok then
@@ -192,11 +213,11 @@ function Shared.Define(name: string, default: any)
 	handles[name] = handle
 	table.insert(names, name)
 	listen(handle)
-	return handle
+	return handle :: any
 end
 
 -- An existing shared value. On clients, any name works (its default is 0 until it arrives).
-function Shared.Get(name: string)
+function Shared.Get(name: string): Shared
 	local handle = handles[name]
 	if handle then
 		return handle
@@ -209,7 +230,7 @@ function Shared.Get(name: string)
 		`Shared value "{name}" doesn't exist.`,
 		Errors.didYouMean(name, names, { `Create it first: K.Shared("{name}", defaultValue)` })
 	)
-	return nil
+	return nil :: any
 end
 
 function Shared.Exists(name: string): boolean
@@ -219,7 +240,7 @@ end
 local PUBLIC_NAMES = { "Define", "Get", "Exists" }
 
 return setmetatable(Shared, {
-	__call = function(_, name: string, default: any)
+	__call = function(_, name: string, default: any): Shared
 		return Shared.Define(name, default)
 	end,
 	__index = function(_, key)

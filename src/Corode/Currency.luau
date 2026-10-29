@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Currency
 	Coins, gems, points: any number a player owns. Only the server can change
@@ -141,7 +142,7 @@ function Currency.Define(name: string, options: { Default: number?, Min: number?
 		})
 	end
 	Errors.checkOptions(options, DEFINE_OPTIONS, "K.Currency.Define")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	Value._define(family, name, {
 		Default = settings.Default or 0,
 		Min = settings.Min or 0,
@@ -285,7 +286,7 @@ function Currency.AddMultiplier(source: (Player, string) -> number): () -> ()
 	Errors.expect(source, "function", "the multiplier", "K.Currency.AddMultiplier")
 	if not multiplierHooked then
 		multiplierHooked = true
-		family.Pipelines.Add:Before(function(ctx)
+		family.Pipelines.Add:Before(function(ctx: { [string]: any })
 			if not UNMULTIPLIED_SOURCES[ctx.Source] then
 				ctx.Amount *= Currency.Multiplier(ctx.Player, ctx.Currency)
 			end

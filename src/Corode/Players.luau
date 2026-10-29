@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Players
 	Player and character helpers that work in both Scripts and LocalScripts.
@@ -236,7 +237,7 @@ function PlayersModule.Respawn(player: Player)
 		Errors.raise("K.Players.Respawn only works in a server Script.")
 	end
 	checkPlayer(player, "K.Players.Respawn")
-	player:LoadCharacter()
+	player:LoadCharacterAsync()
 end
 
 -- Lets a player move unusually (fast, far, through the air) for `seconds`, so

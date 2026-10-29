@@ -1,0 +1,14 @@
+[package]
+name = "udalga/corode"
+description = "A Luau library for building Roblox game systems: data, currencies, items, combat, NPCs, quests, rounds, shops and UI, plus building blocks for your own."
+version = "0.13.0"
+license = "MIT"
+authors = ["Umut Dalga"]
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+homepage = "https://udalga.github.io/corode/"
+repository = "https://github.com/udalga/corode"
+include = ["src", "src/**", "default.project.json", "wally.toml", "LICENSE", "README.md"]
+exclude = ["**"]
+
+[dependencies]

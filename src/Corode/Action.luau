@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Action
 	Things players ask the server to do (buy, upgrade, equip, vote...), with the
@@ -57,6 +58,30 @@ local NO_ANSWER = "That request didn't go through. Try again in a moment."
 
 local Action = {}
 
+-- An action from K.Action. The hooks and Run work on the server; Call and Fire
+-- ask the server from a LocalScript.
+export type Action = {
+	Name: string,
+	Before: (self: Action, callback: (Hooks.Context) -> (), priority: number?) -> () -> (),
+	After: (self: Action, callback: (Hooks.Context) -> ()) -> () -> (),
+	Use: (self: Action, callback: (Hooks.Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Middleware: (self: Action, callback: (Hooks.Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (self: Action, callback: (Hooks.Context, ...any) -> any) -> (),
+	Run: (self: Action, player: Player, ...any) -> (boolean, any),
+	Call: (self: Action, ...any) -> (boolean, any),
+	Fire: (self: Action, ...any) -> (),
+}
+
+type ActionData = {
+	Name: string,
+	_run: (Hooks.Context, ...any) -> any,
+	-- Typed as optional, but stored as false: reading a missing member raises.
+	_validators: { Guard.Validator }?,
+	_hooks: Hooks.Hooks,
+}
+
+type ClientActionData = { Name: string }
+
 local actions: { [string]: any } = {}
 local actionNames: { string } = {}
 
@@ -73,7 +98,7 @@ local function checkPlayer(player: any, functionName: string)
 end
 
 -- Runs an action through its hooks. Returns (succeeded, result or reason).
-local function perform(action, player: Player, source: string, args: { n: number, [number]: any }): (boolean, any)
+local function perform(action: ActionData, player: Player, source: string, args: { n: number, [number]: any }): (boolean, any)
 	local ok, ctx = action._hooks:Run({
 		Player = player,
 		Action = action.Name,
@@ -92,31 +117,32 @@ end
 
 local ServerMethods = {}
 
-function ServerMethods.Before(action, callback: (any) -> (), priority: number?): () -> ()
+function ServerMethods.Before(action: ActionData, callback: (any) -> (), priority: number?): () -> ()
 	return action._hooks:Before(callback, priority)
 end
 
-function ServerMethods.After(action, callback: (any) -> ()): () -> ()
+function ServerMethods.After(action: ActionData, callback: (any) -> ()): () -> ()
 	return action._hooks:After(callback)
 end
 
-function ServerMethods.Use(action, callback: (any, () -> ()) -> (), priority: number?): () -> ()
+function ServerMethods.Use(action: ActionData, callback: (any, () -> ()) -> (), priority: number?): () -> ()
 	return action._hooks:Use(callback, priority)
 end
 
 ServerMethods.Middleware = ServerMethods.Use
 
-function ServerMethods.Override(action, callback: (any, ...any) -> any)
+function ServerMethods.Override(action: ActionData, callback: (any, ...any) -> any)
 	Errors.expect(callback, "function", "the callback", `Action "{action.Name}":Override()`)
 	action._run = callback
 end
 
 -- Runs the action for `player` from server code, with the same hooks.
-function ServerMethods.Run(action, player: Player, ...: any): (boolean, any)
+function ServerMethods.Run(action: ActionData, player: Player, ...: any): (boolean, any)
 	checkPlayer(player, `Action "{action.Name}":Run()`)
 	local args = table.pack(...)
-	if action._validators then
-		local ok, reason = Guard.checkArguments(action._validators, args)
+	local validators = action._validators
+	if validators then
+		local ok, reason = Guard.checkArguments(validators, args)
 		if not ok then
 			Errors.raise(`Action "{action.Name}" got the wrong arguments: {reason}.`)
 		end
@@ -127,7 +153,7 @@ end
 local ClientMethods = {}
 
 -- Asks the server to run the action and waits. Returns (succeeded, result or reason).
-function ClientMethods.Call(action, ...: any): (boolean, any)
+function ClientMethods.Call(action: ClientActionData, ...: any): (boolean, any)
 	local ok, result = Net.Ask(REMOTE_PREFIX .. action.Name, ...)
 	if ok == nil then
 		return false, NO_ANSWER
@@ -136,7 +162,7 @@ function ClientMethods.Call(action, ...: any): (boolean, any)
 end
 
 -- Asks the server to run the action without waiting for the answer.
-function ClientMethods.Fire(action, ...: any)
+function ClientMethods.Fire(action: ClientActionData, ...: any)
 	task.spawn(ClientMethods.Call, action, ...)
 end
 
@@ -144,12 +170,13 @@ end
 -- Defining
 ------------------------------------------------------------------------------
 
-local function define(name: string, options: any, callback: any)
+local function define(name: string, options: any, callback: any): Action
 	checkName(name, "K.Action")
 	if not IS_SERVER then
 		local existing = actions[name]
 		if existing == nil then
-			existing = Methods.build({ Name = name }, ClientMethods, `Action "{name}"`)
+			local data: ClientActionData = { Name = name }
+			existing = Methods.build(data, ClientMethods, `Action "{name}"`)
 			actions[name] = existing
 		end
 		return existing
@@ -162,16 +189,16 @@ local function define(name: string, options: any, callback: any)
 	if actions[name] then
 		Errors.raise(`Action "{name}" is defined twice.`, { "Each action needs only one K.Action." })
 	end
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local rate = settings.RateLimit or DEFAULT_RATE_LIMIT
 	if not Guard.isFinite(rate) or rate <= 0 then
 		Errors.raise(`K.Action("{name}"): RateLimit must be more than 0 calls per second.`)
 	end
 
-	local action = {
+	local action: ActionData = {
 		Name = name,
 		_run = callback,
-		_validators = if settings.Args then Guard.compile(settings.Args, `K.Action("{name}")`) else false,
+		_validators = if settings.Args then Guard.compile(settings.Args, `K.Action("{name}")`) else false :: any,
 		_hooks = nil :: any,
 	}
 	action._hooks = Hooks.new(`Action.{name}`, function(ctx)
@@ -187,7 +214,7 @@ local function define(name: string, options: any, callback: any)
 		ctx.Result = result
 		return true
 	end)
-	action = Methods.build(action, ServerMethods, `Action "{name}"`)
+	Methods.build(action, ServerMethods, `Action "{name}"`)
 	actions[name] = action
 	table.insert(actionNames, name)
 
@@ -204,10 +231,10 @@ local function define(name: string, options: any, callback: any)
 			Net.Handle(REMOTE_PREFIX .. name, answer, { RateLimit = rate })
 		end
 	end
-	return action
+	return action :: any
 end
 
-local function find(name: any, functionName: string)
+local function find(name: any, functionName: string): Action
 	local action = actions[name]
 	if action == nil then
 		checkName(name, functionName)
@@ -228,11 +255,11 @@ end
 
 -- K.Action(name, options?, fn) is the same as K.Action.Define(name, options?, fn).
 -- On clients, K.Action(name) returns the action to Call or Fire.
-function Action.Define(name: string, options: any, callback: any)
+function Action.Define(name: string, options: any, callback: any): Action
 	return define(name, options, callback)
 end
 
-function Action.Get(name: string)
+function Action.Get(name: string): Action
 	return find(name, "K.Action.Get")
 end
 
@@ -267,7 +294,7 @@ end
 local PUBLIC_NAMES = { "Define", "Get", "Exists", "Run", "Call", "Fire" }
 
 return setmetatable(Action, {
-	__call = function(_, name: string, options: any, callback: any)
+	__call = function(_, name: string, options: any, callback: any): Action
 		return define(name, options, callback)
 	end,
 	__index = function(_, key)

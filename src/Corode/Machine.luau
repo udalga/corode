@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Machine
 	A state machine: your game (or a door, a boss, an NPC) is always in one
@@ -63,17 +64,66 @@ local MAX_CHAIN = 50
 local OPTIONS = { Initial = "string", States = "table", Tick = "number" }
 local STATE_OPTIONS = { Enter = "function", Exit = "function", Update = "function", Duration = "number|function", Next = "string|function" }
 
+export type StateDefinition = {
+	Enter: ((Machine, string?) -> string?)?,
+	Exit: ((Machine, string) -> ())?,
+	Update: ((Machine) -> string?)?,
+	Duration: (number | (Machine) -> number)?,
+	Next: (string | (Machine) -> string?)?,
+}
+
+export type Machine = {
+	Name: string,
+	Data: { [any]: any },
+	State: (self: Machine) -> string,
+	Is: (self: Machine, name: string) -> boolean,
+	TimeLeft: (self: Machine) -> number,
+	TimeIn: (self: Machine) -> number,
+	Go: (self: Machine, name: string) -> (),
+	OnChanged: (self: Machine, callback: (string, string?) -> ()) -> Signal.Connection,
+	OnEnter: (self: Machine, state: string, callback: (Machine, string?) -> ()) -> Signal.Connection,
+	OnExit: (self: Machine, state: string, callback: (Machine, string) -> ()) -> Signal.Connection,
+	Stop: (self: Machine) -> (),
+	Destroy: (self: Machine) -> (),
+}
+
+type MachineData = {
+	Name: string,
+	Data: { [any]: any },
+	Changed: Signal.Signal,
+	_states: { [string]: any },
+	_stateNames: { string },
+	_state: any,
+	_enteredAt: number,
+	-- Typed as optional, but stored as false: reading a missing member raises.
+	_endsAt: number?,
+	_pending: string?,
+	_moving: boolean,
+	_stopped: boolean,
+	_tickRate: number,
+	_nextTick: number,
+	_ticking: boolean,
+	_stateValue: Shared.Shared?,
+	_endsValue: Shared.Shared?,
+}
+
+type ClientMachineData = {
+	Name: string,
+	_stateValue: Shared.Shared,
+	_endsValue: Shared.Shared,
+}
+
 local Machine = {}
 
 local machines: { [string]: any } = {}
 local machineNames: { string } = {}
 -- Every running machine. One Heartbeat loop ticks them all, so thousands of
 -- machines don't each need a waiting thread, and each keeps its own Tick rate.
-local scheduled: { any } = {}
+local scheduled: { MachineData } = {}
 local schedulerConnection: RBXScriptConnection? = nil
 local random = Random.new()
 
-local function call(machine, label: string, callback: any, ...: any): any
+local function call(machine: MachineData, label: string, callback: any, ...: any): any
 	local ok, result = pcall(callback, machine, ...)
 	if not ok then
 		Errors.warn(`K.Machine "{machine.Name}": {label} errored: {result}`)
@@ -82,7 +132,7 @@ local function call(machine, label: string, callback: any, ...: any): any
 	return result
 end
 
-local function checkState(machine, name: any, functionName: string)
+local function checkState(machine: MachineData, name: any, functionName: string)
 	if type(name) ~= "string" or machine._states[name] == nil then
 		Errors.raise(
 			`{functionName}: "{machine.Name}" has no state {Errors.quote(name)}.`,
@@ -99,14 +149,15 @@ end
 -- Moving between states
 ------------------------------------------------------------------------------
 
-local function replicate(machine)
-	if machine._stateValue then
-		machine._stateValue:Set(machine._state)
-		machine._endsValue:Set(machine._endsAt or 0)
+local function replicate(machine: MachineData)
+	local stateValue, endsValue = machine._stateValue, machine._endsValue
+	if stateValue and endsValue then
+		stateValue:Set(machine._state)
+		endsValue:Set(machine._endsAt or 0)
 	end
 end
 
-local function durationOf(machine, definition): number?
+local function durationOf(machine: MachineData, definition: StateDefinition): number?
 	local duration = definition.Duration
 	if type(duration) == "function" then
 		duration = call(machine, `Duration of {machine._state}`, duration)
@@ -120,7 +171,7 @@ local function durationOf(machine, definition): number?
 	return duration
 end
 
-local function go(machine, target: string)
+local function go(machine: MachineData, target: string)
 	if machine._moving then
 		-- Asked to move again from an Enter or Exit: do it right after this move.
 		machine._pending = target
@@ -144,8 +195,8 @@ local function go(machine, target: string)
 		machine._state = nextState
 		machine._enteredAt = os.clock()
 		local duration = durationOf(machine, definition)
-		machine._endsAt = if duration then now() + duration else false
-		machine._pending = false
+		machine._endsAt = if duration then now() + duration else false :: any
+		machine._pending = false :: any
 		replicate(machine)
 		machine.Changed:Fire(nextState, old or nil)
 		if definition.Enter then
@@ -159,11 +210,11 @@ local function go(machine, target: string)
 			checkState(machine, nextState, `K.Machine "{machine.Name}"`)
 		end
 	end
-	machine._pending = false
+	machine._pending = false :: any
 	machine._moving = false
 end
 
-local function tick(machine)
+local function tick(machine: MachineData)
 	if machine._moving or machine._stopped then
 		return
 	end
@@ -176,7 +227,8 @@ local function tick(machine)
 			return
 		end
 	end
-	if machine._endsAt and now() >= machine._endsAt then
+	local endsAt = machine._endsAt
+	if endsAt and now() >= endsAt then
 		local target = definition.Next
 		if type(target) == "function" then
 			target = call(machine, `Next of {machine._state}`, target)
@@ -186,7 +238,7 @@ local function tick(machine)
 			go(machine, target)
 		else
 			-- Time's up but there's nowhere to go: stay, and stop counting.
-			machine._endsAt = false
+			machine._endsAt = false :: any
 			replicate(machine)
 		end
 	end
@@ -221,7 +273,7 @@ local function step()
 	end
 end
 
-local function schedule(machine)
+local function schedule(machine: MachineData)
 	-- A random first tick spreads machines made at the same moment over frames.
 	machine._nextTick = os.clock() + random:NextNumber() * machine._tickRate
 	table.insert(scheduled, machine)
@@ -236,39 +288,40 @@ end
 
 local ServerMethods = {}
 
-function ServerMethods.State(machine): string
+function ServerMethods.State(machine: MachineData): string
 	return machine._state
 end
 
-function ServerMethods.Is(machine, name: string): boolean
+function ServerMethods.Is(machine: MachineData, name: string): boolean
 	checkState(machine, name, `{machine.Name}:Is()`)
 	return machine._state == name
 end
 
 -- Seconds until the state's Duration runs out (0 without one).
-function ServerMethods.TimeLeft(machine): number
-	return if machine._endsAt then math.max(0, machine._endsAt - now()) else 0
+function ServerMethods.TimeLeft(machine: MachineData): number
+	local endsAt = machine._endsAt
+	return if endsAt then math.max(0, endsAt - now()) else 0
 end
 
 -- Seconds since the machine entered its current state.
-function ServerMethods.TimeIn(machine): number
+function ServerMethods.TimeIn(machine: MachineData): number
 	return os.clock() - machine._enteredAt
 end
 
 -- Moves to a state now (running Exit and Enter).
-function ServerMethods.Go(machine, name: string)
+function ServerMethods.Go(machine: MachineData, name: string)
 	checkState(machine, name, `{machine.Name}:Go()`)
 	go(machine, name)
 end
 
 -- callback(new, old) after every move.
-function ServerMethods.OnChanged(machine, callback: (string, string?) -> ())
+function ServerMethods.OnChanged(machine: MachineData, callback: (string, string?) -> ())
 	Errors.expect(callback, "function", "the callback", `{machine.Name}:OnChanged()`)
 	return machine.Changed:Connect(callback)
 end
 
 -- callback(machine, oldState) whenever the machine enters `state`, from any script.
-function ServerMethods.OnEnter(machine, state: string, callback: (any, string?) -> ())
+function ServerMethods.OnEnter(machine: MachineData, state: string, callback: (any, string?) -> ())
 	checkState(machine, state, `{machine.Name}:OnEnter()`)
 	Errors.expect(callback, "function", "the callback", `{machine.Name}:OnEnter()`)
 	return machine.Changed:Connect(function(new, old)
@@ -279,7 +332,7 @@ function ServerMethods.OnEnter(machine, state: string, callback: (any, string?) 
 end
 
 -- callback(machine, newState) whenever the machine leaves `state`.
-function ServerMethods.OnExit(machine, state: string, callback: (any, string) -> ())
+function ServerMethods.OnExit(machine: MachineData, state: string, callback: (any, string) -> ())
 	checkState(machine, state, `{machine.Name}:OnExit()`)
 	Errors.expect(callback, "function", "the callback", `{machine.Name}:OnExit()`)
 	return machine.Changed:Connect(function(new, old)
@@ -290,7 +343,7 @@ function ServerMethods.OnExit(machine, state: string, callback: (any, string) ->
 end
 
 -- Stops the machine for good (the current state's Exit doesn't run).
-function ServerMethods.Stop(machine)
+function ServerMethods.Stop(machine: MachineData)
 	machine._stopped = true
 end
 
@@ -298,20 +351,20 @@ ServerMethods.Destroy = ServerMethods.Stop
 
 local ClientMethods = {}
 
-function ClientMethods.State(machine): string?
+function ClientMethods.State(machine: ClientMachineData): string?
 	return machine._stateValue:Get()
 end
 
-function ClientMethods.Is(machine, name: string): boolean
+function ClientMethods.Is(machine: ClientMachineData, name: string): boolean
 	return machine._stateValue:Get() == name
 end
 
-function ClientMethods.TimeLeft(machine): number
+function ClientMethods.TimeLeft(machine: ClientMachineData): number
 	local endsAt = machine._endsValue:Get()
 	return if type(endsAt) == "number" and endsAt > 0 then math.max(0, endsAt - now()) else 0
 end
 
-function ClientMethods.OnChanged(machine, callback: (string, string?) -> ())
+function ClientMethods.OnChanged(machine: ClientMachineData, callback: (string, string?) -> ())
 	Errors.expect(callback, "function", "the callback", `{machine.Name}:OnChanged()`)
 	return machine._stateValue:OnChanged(callback)
 end
@@ -359,7 +412,7 @@ local function buildStates(options: { [string]: any }, label: string)
 	return names, initial
 end
 
-local function create(name: string?, options: { [string]: any })
+local function create(name: string?, options: { [string]: any }): Machine
 	local label = if name then `K.Machine("{name}")` else "K.Machine"
 	Errors.expect(options, "table", "the machine's settings", label)
 	Errors.checkOptions(options, OPTIONS, label)
@@ -369,14 +422,14 @@ local function create(name: string?, options: { [string]: any })
 		Errors.raise(`{label}: Tick must be more than 0 seconds.`)
 	end
 
-	local machine = {
+	local machine: MachineData = {
 		Name = name or "Machine",
 		Data = {},
 		Changed = Signal.new(),
 		_states = options.States,
 		_stateNames = stateNames,
 		-- false, not nil, for "none": these objects raise when a missing member is read.
-		_state = false :: any,
+		_state = false,
 		_enteredAt = os.clock(),
 		_endsAt = false :: any,
 		_pending = false :: any,
@@ -392,16 +445,16 @@ local function create(name: string?, options: { [string]: any })
 		machine._stateValue = Shared.Define(`{SHARED_PREFIX}{name}_State`, initial)
 		machine._endsValue = Shared.Define(`{SHARED_PREFIX}{name}_EndsAt`, 0)
 	end
-	machine = Methods.build(machine, ServerMethods, `Machine "{machine.Name}"`)
+	Methods.build(machine, ServerMethods, `Machine "{machine.Name}"`)
 
 	go(machine, initial)
 	schedule(machine)
-	return machine
+	return machine :: any
 end
 
 -- K.Machine(name?, options): a named machine reaches clients; without a name it's private.
 -- On clients, K.Machine(name) returns the named machine to read.
-function Machine.Define(name: any, options: any)
+function Machine.Define(name: any, options: any): Machine
 	if type(name) == "table" and options == nil then
 		if not IS_SERVER then
 			Errors.raise("K.Machine with settings only works in a server Script.", {
@@ -416,11 +469,12 @@ function Machine.Define(name: any, options: any)
 	if not IS_SERVER then
 		local existing = machines[name]
 		if existing == nil then
-			existing = Methods.build({
+			local data: ClientMachineData = {
 				Name = name,
 				_stateValue = Shared.Define(`{SHARED_PREFIX}{name}_State`, ""),
 				_endsValue = Shared.Define(`{SHARED_PREFIX}{name}_EndsAt`, 0),
-			}, ClientMethods, `Machine "{name}"`)
+			}
+			existing = Methods.build(data, ClientMethods, `Machine "{name}"`)
 			machines[name] = existing
 		end
 		return existing
@@ -434,7 +488,7 @@ function Machine.Define(name: any, options: any)
 	return machine
 end
 
-function Machine.Get(name: string)
+function Machine.Get(name: string): Machine
 	local machine = machines[name]
 	if machine then
 		return machine
@@ -443,13 +497,13 @@ function Machine.Get(name: string)
 		return Machine.Define(name)
 	end
 	Errors.raise(`Machine "{tostring(name)}" doesn't exist.`, Errors.didYouMean(tostring(name), machineNames))
-	return nil
+	return nil :: any
 end
 
 local PUBLIC_NAMES = { "Define", "Get" }
 
 return setmetatable(Machine, {
-	__call = function(_, name: any, options: any)
+	__call = function(_, name: any, options: any): Machine
 		return Machine.Define(name, options)
 	end,
 	__index = function(_, key)

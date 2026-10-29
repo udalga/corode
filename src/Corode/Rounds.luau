@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Rounds
 	A game loop: wait for players, count down, play a round, pick the winners,
@@ -100,7 +101,7 @@ Rounds.Ended = Signal.new() -- (round, result)
 Rounds.Eliminated = Signal.new() -- (player, reason)
 
 local random = Random.new()
-local main = nil
+local main: Game? = nil
 
 ------------------------------------------------------------------------------
 -- Settings
@@ -165,34 +166,60 @@ end
 -- A running game
 ------------------------------------------------------------------------------
 
+type Forced = { Winners: { Player }, Team: string? }
+
+type GameData = {
+	Config: { [string]: any },
+	Folder: Instance?,
+	State: string,
+	Round: Round?,
+	Alive: { [Player]: boolean },
+	Scores: { [Player]: number },
+	StateChanged: Signal.Signal,
+	Started: Signal.Signal,
+	Ended: Signal.Signal,
+	Eliminated: Signal.Signal,
+	_machine: Machine.Machine?,
+	_trove: Trove.Trove?,
+	_stopped: boolean,
+	_finish: string?,
+	_forced: Forced?,
+	_lastMap: Instance?,
+	_startCount: number,
+	_startTeams: number,
+}
+
 local Game = {}
 Game.__index = Game
 
-local function newGame(settings: { [string]: any }, folder: Instance?, signals: { [string]: any })
-	return setmetatable({
+type Game = typeof(setmetatable({} :: GameData, Game))
+
+local function newGame(settings: { [string]: any }, folder: Instance?, signals: { [string]: any }): Game
+	local data: GameData = {
 		Config = settings,
 		Folder = folder,
 		State = "Waiting",
-		Round = nil :: Round?,
-		Alive = {} :: { [Player]: boolean },
-		Scores = {} :: { [Player]: number },
+		Round = nil,
+		Alive = {},
+		Scores = {},
 		StateChanged = signals.StateChanged,
 		Started = signals.Started,
 		Ended = signals.Ended,
 		Eliminated = signals.Eliminated,
-		_machine = nil :: any,
-		_trove = nil :: any,
+		_machine = nil,
+		_trove = nil,
 		_stopped = false,
-		_finish = nil :: string?,
-		_forced = nil :: { Winners: { Player }, Team: string? }?,
-		_lastMap = nil :: Instance?,
+		_finish = nil,
+		_forced = nil,
+		_lastMap = nil,
 		_startCount = 0,
 		_startTeams = 0,
-	}, Game)
+	}
+	return setmetatable(data, Game)
 end
 
 -- Called by every state's Enter: mirrors the state for Rounds' API and clients.
-function Game:_entered(state: string, machine)
+function Game._entered(self: Game, state: string, machine: Machine.Machine)
 	self.State = state
 	local left = machine:TimeLeft()
 	if self.Folder then
@@ -202,7 +229,7 @@ function Game:_entered(state: string, machine)
 	self.StateChanged:Fire(state)
 end
 
-function Game:TimeLeft(): number
+function Game.TimeLeft(self: Game): number
 	return if self._machine then self._machine:TimeLeft() else 0
 end
 
@@ -226,7 +253,7 @@ local function present(list: { Player }): { Player }
 	return result
 end
 
-function Game:_pickMap(): Instance?
+function Game._pickMap(self: Game): Instance?
 	local maps = self.Config.Maps
 	if maps == nil then
 		return nil
@@ -267,7 +294,7 @@ local function partsIn(container: Instance?): { BasePart }
 	return list
 end
 
-function Game:_spawnFor(player: Player): BasePart?
+function Game._spawnFor(self: Game, player: Player): BasePart?
 	local spawns = self.Round and self.Round.Map and self.Round.Map:FindFirstChild("Spawns")
 	local list = {}
 	if spawns then
@@ -288,19 +315,22 @@ end
 
 local function aliveCharacter(player: Player): boolean
 	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if character == nil then
+		return false
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	return humanoid ~= nil and humanoid.Health > 0 and character:FindFirstChild("HumanoidRootPart") ~= nil
 end
 
 -- Puts a participant on one of the round's spawns, giving them a fresh character
 -- first if they don't have a living one.
-function Game:_sendToSpawn(player: Player)
+function Game._sendToSpawn(self: Game, player: Player)
 	local spawn = self:_spawnFor(player)
 	if spawn == nil then
 		return
 	end
 	if not aliveCharacter(player) then
-		pcall(player.LoadCharacter, player)
+		pcall(player.LoadCharacterAsync, player)
 		local deadline = os.clock() + CHARACTER_TIMEOUT
 		while not aliveCharacter(player) and os.clock() < deadline and player.Parent == Players do
 			task.wait(0.1)
@@ -311,7 +341,7 @@ function Game:_sendToSpawn(player: Player)
 	end
 end
 
-function Game:_checkFinished()
+function Game._checkFinished(self: Game)
 	if self.State ~= "Playing" or self._finish then
 		return
 	end
@@ -354,7 +384,7 @@ function Game:_checkFinished()
 end
 
 -- Takes a player out of the current round. Returns true if they were in it.
-function Game:Eliminate(player: Player, reason: string?): boolean
+function Game.Eliminate(self: Game, player: Player, reason: string?): boolean
 	if self.State ~= "Playing" or not self.Alive[player] then
 		return false
 	end
@@ -367,7 +397,7 @@ function Game:Eliminate(player: Player, reason: string?): boolean
 	return true
 end
 
-function Game:AddScore(player: Player, amount: number?): boolean
+function Game.AddScore(self: Game, player: Player, amount: number?): boolean
 	local value = amount or 1
 	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
 		Errors.raise(`K.Rounds.AddScore expected a number, but got {Errors.describe(amount)}.`)
@@ -386,7 +416,7 @@ function Game:AddScore(player: Player, amount: number?): boolean
 end
 
 -- Ends the round now. Winners can be a list of players or a team name.
-function Game:End(winners: any): boolean
+function Game.End(self: Game, winners: any): boolean
 	if self.State ~= "Playing" or self._finish then
 		return false
 	end
@@ -421,7 +451,7 @@ local function topOf(scores: { [any]: number }): (any, boolean)
 	return best, tied
 end
 
-function Game:_result(reason: string): Result
+function Game._result(self: Game, reason: string): Result
 	local round = self.Round :: Round
 	local config = self.Config
 	if config.Winner then
@@ -432,7 +462,7 @@ function Game:_result(reason: string): Result
 		Errors.warn(`K.Rounds Winner function {if ok then "didn't return a list of players" else "errored: " .. tostring(winners)}.`)
 	end
 	if reason == "Ended" then
-		local forced = self._forced or { Winners = {} }
+		local forced: Forced = self._forced or { Winners = {} }
 		return { Winners = forced.Winners, Team = forced.Team, Reason = "Ended" }
 	elseif reason == "NoPlayers" then
 		return { Winners = {}, Reason = "NoPlayers" }
@@ -499,14 +529,14 @@ local function describe(result: Result): string
 end
 
 local function giveReward(player: Player, bundle: any)
-	local ok, problem = pcall(Rewards.Give, player, bundle, "Round")
+	local ok, problem = pcall(Rewards.Give :: any, player, bundle, "Round")
 	if not ok then
 		Errors.warn(`Couldn't give {player.Name} their round reward: {problem}`)
 	end
 end
 
 -- Playing's Enter: sets up the map, teams and players, then starts the clock.
-function Game:_begin()
+function Game._begin(self: Game)
 	local config = self.Config
 	local participants = eligible()
 	local trove = Trove.new()
@@ -580,7 +610,7 @@ function Game:_begin()
 end
 
 -- Ending's Enter: picks the winners, announces them and gives rewards.
-function Game:_conclude()
+function Game._conclude(self: Game)
 	local config = self.Config
 	local round = self.Round :: Round
 	local result = self:_result(self._finish or "TimeUp")
@@ -610,7 +640,7 @@ function Game:_conclude()
 end
 
 -- Ending's Exit: the map goes, and everyone who played goes back to the lobby.
-function Game:_cleanup()
+function Game._cleanup(self: Game)
 	local config = self.Config
 	local round = self.Round
 	if round == nil then
@@ -630,7 +660,7 @@ function Game:_cleanup()
 		if config.Lobby then
 			task.spawn(PlayersModule.Teleport, player, config.Lobby)
 		elseif stillOnMap[player] or config.Mode == "Score" then
-			task.spawn(pcall, player.LoadCharacter, player)
+			task.spawn(pcall, player.LoadCharacterAsync, player)
 		end
 	end
 	self.Round = nil
@@ -639,7 +669,7 @@ function Game:_cleanup()
 end
 
 -- The loop is a K.Machine: Waiting → Intermission → Playing → Ending → Waiting.
-function Game:_start()
+function Game._start(self: Game)
 	local config = self.Config
 	local function enough(): boolean
 		return #eligible() >= config.MinPlayers
@@ -654,7 +684,7 @@ function Game:_start()
 						machine:Stop()
 					end
 				end,
-				Update = function()
+				Update = function(): string?
 					if not self._stopped and enough() then
 						return "Intermission"
 					end
@@ -667,7 +697,7 @@ function Game:_start()
 				Enter = function(machine)
 					self:_entered("Intermission", machine)
 				end,
-				Update = function()
+				Update = function(): string?
 					if self._stopped or not enough() then
 						return "Waiting"
 					end
@@ -681,7 +711,7 @@ function Game:_start()
 					self:_entered("Playing", machine)
 					self:_begin()
 				end,
-				Update = function()
+				Update = function(): string?
 					if self._stopped and self._finish == nil then
 						self._finish = "Ended"
 					end
@@ -695,7 +725,7 @@ function Game:_start()
 					self:_entered("Ending", machine)
 					self:_conclude()
 				end,
-				Update = function()
+				Update = function(): string?
 					return if self._stopped then "Waiting" else nil
 				end,
 				Exit = function()
@@ -707,7 +737,7 @@ function Game:_start()
 end
 
 -- Stops the loop (ending a round in progress). Used by tests.
-function Game:Stop()
+function Game.Stop(self: Game)
 	self._stopped = true
 	local machine = self._machine
 	if machine and (machine:State() == "Waiting" or machine:State() == "Intermission") then
@@ -727,12 +757,12 @@ local function requireServer(functionName: string)
 	end
 end
 
-local function getMain(functionName: string)
+local function getMain(functionName: string): Game
 	requireServer(functionName)
 	if main == nil then
 		Errors.raise(`{functionName}: rounds aren't set up yet.`, { "Call K.Rounds.Define({ ... }) first." })
 	end
-	return main
+	return main :: Game
 end
 
 local function checkPlayer(player: any, functionName: string)
@@ -752,11 +782,17 @@ function Rounds.Define(config: { [string]: any })
 		Errors.raise("K.Rounds.Define can only be called once.")
 	end
 	local settings = checkConfig(config, "K.Rounds.Define")
-	local replicated = folder() or Instance.new("Folder")
+	local replicated: Instance = folder() or Instance.new("Folder")
 	replicated.Name = FOLDER_NAME
 	replicated.Parent = ReplicatedStorage
-	main = newGame(settings, replicated, Rounds)
-	main:_start()
+	local created = newGame(settings, replicated, {
+		StateChanged = Rounds.StateChanged,
+		Started = Rounds.Started,
+		Ended = Rounds.Ended,
+		Eliminated = Rounds.Eliminated,
+	})
+	main = created
+	created:_start()
 end
 
 -- "Waiting", "Intermission", "Playing" or "Ending".
@@ -765,7 +801,7 @@ function Rounds.State(): string
 		return if main then main.State else "Waiting"
 	end
 	local replicated = folder()
-	return replicated and replicated:GetAttribute("State") or "Waiting"
+	return (replicated and replicated:GetAttribute("State") or "Waiting") :: string
 end
 
 -- Seconds left in the countdown or the round (0 while waiting for players).
@@ -785,7 +821,7 @@ function Rounds.Map(): string?
 		return if round and round.Map then round.Map.Name else nil
 	end
 	local replicated = folder()
-	return replicated and replicated:GetAttribute("Map")
+	return (replicated and replicated:GetAttribute("Map")) :: string?
 end
 
 -- True while the player is still in the current round. Client: defaults to yourself.
@@ -810,14 +846,17 @@ function Rounds.OnStateChanged(callback: (string) -> ())
 			end)
 		end
 	end)
-	return {
-		Disconnect = function()
-			active = false
-			if connection then
-				connection:Disconnect()
-			end
-		end,
-	}
+	local handle = { Connected = true }
+	local function disconnect()
+		active = false
+		handle.Connected = false
+		if connection then
+			connection:Disconnect()
+		end
+	end
+	handle.Disconnect = disconnect
+	handle.Destroy = disconnect
+	return handle :: any
 end
 
 -- The round being played, or nil.
@@ -850,7 +889,7 @@ end
 function Rounds.Score(player: Player?): number
 	local target = player or (if IS_SERVER then nil else Players.LocalPlayer)
 	checkPlayer(target, "K.Rounds.Score")
-	return (target :: Player):GetAttribute(SCORE_ATTRIBUTE) or 0
+	return ((target :: Player):GetAttribute(SCORE_ATTRIBUTE) or 0) :: number
 end
 
 -- Ends the round now. Winners: nil (nobody), a list of players, or a team name.
@@ -859,7 +898,7 @@ function Rounds.End(winners: any): boolean
 end
 
 -- For tests: a separate round loop with its own signals, not replicated to clients.
-function Rounds._new(config: { [string]: any })
+function Rounds._new(config: { [string]: any }): Game
 	requireServer("K.Rounds._new")
 	local settings = checkConfig(config, "K.Rounds._new")
 	local game_ = newGame(settings, nil, {

@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Leaderstats
 	Shows currencies and K.Value values on the player list.
@@ -32,15 +33,21 @@ local Leaderstats = {}
 local shown: { Shown } = {}
 local readyPlayers: { [Player]: boolean } = {}
 
-local function build(player: Player)
-	local folder = player:FindFirstChild("leaderstats")
-	if folder == nil then
-		folder = Instance.new("Folder")
-		folder.Name = "leaderstats"
+local function folderFor(player: Player): Instance
+	local existing = player:FindFirstChild("leaderstats")
+	if existing then
+		return existing
 	end
+	local folder = Instance.new("Folder")
+	folder.Name = "leaderstats"
+	return folder
+end
+
+local function build(player: Player)
+	local folder = folderFor(player)
 	for _, entry in shown do
 		if folder:FindFirstChild(entry.Name) == nil then
-			local stat = Instance.new(entry.Class)
+			local stat: any = Instance.new(entry.Class)
 			stat.Name = entry.Name
 			stat.Value = entry.Get(player)
 			stat.Parent = folder
@@ -63,7 +70,7 @@ local function resolve(target: any): Shown
 	end
 	if type(name) == "string" and Value.Exists(name) then
 		local handle = Value.Get(name)
-		local settings = handle._settings
+		local settings = Value._getSettings(name) :: Value.Settings
 		return {
 			Name = name,
 			Class = if settings.Kind == "number" and settings.Integer then "IntValue" else CLASS_BY_KIND[settings.Kind],
@@ -111,7 +118,7 @@ end
 
 local function update(player: Player, name: string)
 	local folder = player:FindFirstChild("leaderstats")
-	local stat = folder and folder:FindFirstChild(name)
+	local stat: any = folder and folder:FindFirstChild(name)
 	if stat == nil then
 		return
 	end
@@ -138,5 +145,8 @@ end
 function Leaderstats._playerRemoved(player: Player)
 	readyPlayers[player] = nil
 end
+
+-- The real module type, for init (the early return above is typed any).
+export type Module = typeof(Leaderstats)
 
 return Errors.strict(Leaderstats, "K.Leaderstats")

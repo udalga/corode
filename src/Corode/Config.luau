@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Config
 	Framework settings. Change them with K.Configure before K.Start():

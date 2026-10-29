@@ -26,7 +26,7 @@ export default defineConfig({
       { text: 'API', link: '/api/' },
       { text: 'Security', link: '/reference/security' },
       {
-        text: 'v0.12 beta',
+        text: 'v0.13 beta',
         items: [
           { text: 'Changelog', link: 'https://github.com/udalga/corode/blob/main/CHANGELOG.md' },
           { text: 'Download (releases)', link: 'https://github.com/udalga/corode/releases/latest' },
@@ -90,6 +90,7 @@ export default defineConfig({
             { text: 'Utilities', link: '/reference/utilities' },
             { text: 'Security checklist', link: '/reference/security' },
             { text: 'Running at scale', link: '/reference/scaling' },
+            { text: 'Types and packages', link: '/reference/types-packages' },
             { text: 'API reference', link: '/api/' },
             { text: 'Working on Corode', link: '/reference/contributing' },
           ],
@@ -99,6 +100,6 @@ export default defineConfig({
     outline: { level: [2, 3], label: 'On this page' },
     search: { provider: 'local' },
     docFooter: { prev: 'Previous', next: 'Next' },
-    footer: { message: 'Corode 0.12.0 · MIT License' },
+    footer: { message: 'Corode 0.13.0 · MIT License' },
   },
 })

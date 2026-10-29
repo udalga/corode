@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Admin
 	Roles, commands and bans. Commands work from chat (type /kick name) and from code.
@@ -166,7 +167,7 @@ function Admin.Role(name: string, options: { Level: number, Users: { number }?, 
 		Errors.raise(`K.Admin.Role("{name}") needs Users (a list of user ids) or a Group.`)
 	end
 	local users = {}
-	for _, userId in options.Users or {} do
+	for _, userId in (options.Users or {}) :: { any } do
 		if type(userId) ~= "number" or userId % 1 ~= 0 then
 			Errors.raise(`K.Admin.Role("{name}"): Users must be user ids (numbers), but found {Errors.describe(userId)}.`)
 		end
@@ -261,7 +262,7 @@ local function parseArguments(admin: Player, command: Command, words: { string }
 			end
 			return nil, `Usage: {usage(command)}`
 		end
-		local value, problem
+		local value: any, problem: string?
 		if argument.Type == "player" or argument.Type == "players" then
 			local found, why = findPlayers(admin, word)
 			if found == nil then
@@ -327,7 +328,8 @@ function Admin.Command(name: string, options: { Level: number?, Args: { string }
 		Errors.raise(`K.Admin.Command("{key}"): Level must be a whole number from 0 to {OWNER_LEVEL}.`)
 	end
 	local arguments = {}
-	for index, spec in options.Args or {} do
+	local specs: { string } = options.Args or {}
+	for index, spec in specs do
 		local optional = type(spec) == "string" and string.sub(spec, -1) == "?"
 		local kind = if optional then string.sub(spec, 1, -2) else spec
 		if not table.find(ARG_TYPES, kind) then
@@ -336,7 +338,7 @@ function Admin.Command(name: string, options: { Level: number?, Args: { string }
 				Errors.didYouMean(tostring(kind), ARG_TYPES, { `Types: {table.concat(ARG_TYPES, ", ")}` })
 			)
 		end
-		if kind == "text" and index ~= #options.Args then
+		if kind == "text" and index ~= #specs then
 			Errors.raise(`K.Admin.Command("{key}"): a "text" argument takes the rest of the line, so it must be last.`)
 		end
 		table.insert(arguments, { Type = kind, Optional = optional })
@@ -370,9 +372,9 @@ local function run(player: Player, input: string): (boolean, string)
 	if #text == 0 or #text > MAX_COMMAND_LENGTH then
 		return false, "Type a command, like /cmds."
 	end
-	local words, starts = {}, {}
+	local words: { string }, starts: { number } = {}, {}
 	for start, word in string.gmatch(text, "()(%S+)") do
-		table.insert(words, word)
+		table.insert(words, word :: string)
 		table.insert(starts, start)
 	end
 	local name = string.lower(table.remove(words, 1) :: string)
@@ -443,7 +445,7 @@ function Admin.Ban(target: Player | number, options: { Minutes: number?, Reason:
 	requireServer("K.Admin.Ban")
 	local userId = userIdOf(target, "K.Admin.Ban")
 	Errors.checkOptions(options, { Minutes = "number", Reason = "string", By = "Player" }, "K.Admin.Ban")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local reason = string.sub(settings.Reason or "You are banned from this game.", 1, 300)
 	local seconds = if settings.Minutes then math.max(1, math.floor(settings.Minutes * 60)) else -1
 	local official = pcall(Players.BanAsync, Players, {
@@ -601,7 +603,7 @@ local function addBuiltIns()
 			local allowed, skipped = affectable(admin, targets)
 			for index, target in allowed do
 				if target ~= admin then
-					PlayersModule.Teleport(target, root.CFrame * CFrame.new(index * 3, 0, -4))
+					PlayersModule.Teleport(target, (root :: BasePart).CFrame * CFrame.new(index * 3, 0, -4))
 				end
 			end
 			return summary("Brought", #allowed, skipped)

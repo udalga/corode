@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Input
 	Keyboard, mouse, gamepad and touch in one place. LocalScripts only.
@@ -60,6 +61,32 @@ local KEY_ALIASES = {
 }
 
 local Input = {}
+-- A key binding from K.Input.Bind.
+export type Action = {
+	Name: string,
+	Keys: { any },
+	OnPress: (self: Action, callback: (InputObject?) -> ()) -> Signal.Connection,
+	OnRelease: (self: Action, callback: (InputObject?) -> ()) -> Signal.Connection,
+	Send: (self: Action, eventName: string, ...any) -> Action,
+	IsDown: (self: Action) -> boolean,
+	Rebind: (self: Action, keys: any) -> (),
+	Disable: (self: Action) -> (),
+	Enable: (self: Action) -> (),
+	Unbind: (self: Action) -> (),
+}
+
+type ActionData = {
+	Name: string,
+	Keys: { any },
+	_id: string,
+	_inputs: { EnumItem },
+	_options: { [string]: any },
+	_pressed: Signal.Signal,
+	_released: Signal.Signal,
+	_down: boolean,
+	_enabled: boolean,
+}
+
 local ActionMethods = {}
 
 local actions: { [string]: any } = {}
@@ -67,15 +94,15 @@ local keyNames: { string }? = nil
 
 local function allKeyNames(): { string }
 	if keyNames == nil then
-		local names = {}
+		local names: { string } = {}
 		for _, item in Enum.KeyCode:GetEnumItems() do
 			table.insert(names, item.Name)
 		end
 		for name in MOUSE_INPUTS do
-			table.insert(names, name)
+			table.insert(names, name :: string)
 		end
 		for alias in KEY_ALIASES do
-			table.insert(names, alias)
+			table.insert(names, alias :: string)
 		end
 		keyNames = names
 	end
@@ -101,7 +128,7 @@ local function resolveKey(key: any, functionName: string): EnumItem
 		`{functionName}: {Errors.quote(key)} isn't a key.`,
 		Errors.didYouMean(tostring(key), allKeyNames(), { 'Examples: "E", "LeftShift", "Space", "MouseButton1", "ButtonA"' })
 	)
-	return Enum.KeyCode.Unknown
+	return (Enum.KeyCode :: any).Unknown
 end
 
 local function resolveKeys(keys: any, functionName: string): { EnumItem }
@@ -116,7 +143,7 @@ local function resolveKeys(keys: any, functionName: string): { EnumItem }
 	return resolved
 end
 
-local function bindAction(action)
+local function bindAction(action: ActionData)
 	local function handle(_, state: Enum.UserInputState, inputObject: InputObject)
 		if UserInputService:GetFocusedTextBox() then
 			return Enum.ContextActionResult.Pass
@@ -150,7 +177,7 @@ local function bindAction(action)
 	end
 end
 
-local function unbindAction(action)
+local function unbindAction(action: ActionData)
 	ContextActionService:UnbindAction(action._id)
 	if action._down then
 		action._down = false
@@ -163,21 +190,21 @@ end
 ------------------------------------------------------------------------------
 
 -- Runs callback(inputObject) when any of the action's keys is pressed.
-function ActionMethods.OnPress(action, callback: (InputObject?) -> ())
+function ActionMethods.OnPress(action: ActionData, callback: (InputObject?) -> ())
 	Errors.expect(callback, "function", "the callback", ":OnPress()")
 	action._pressed:Connect(callback)
 	return action
 end
 
 -- Runs callback(inputObject) when the key is let go.
-function ActionMethods.OnRelease(action, callback: (InputObject?) -> ())
+function ActionMethods.OnRelease(action: ActionData, callback: (InputObject?) -> ())
 	Errors.expect(callback, "function", "the callback", ":OnRelease()")
 	action._released:Connect(callback)
 	return action
 end
 
 -- On press, fires the Net event `eventName` to the server with any extra values.
-function ActionMethods.Send(action, eventName: string, ...: any)
+function ActionMethods.Send(action: ActionData, eventName: string, ...: any)
 	Errors.expect(eventName, "string", "the event name", ":Send()")
 	local extra = table.pack(...)
 	action._pressed:Connect(function()
@@ -186,12 +213,12 @@ function ActionMethods.Send(action, eventName: string, ...: any)
 	return action
 end
 
-function ActionMethods.IsDown(action): boolean
+function ActionMethods.IsDown(action: ActionData): boolean
 	return action._down
 end
 
 -- Changes the keys, e.g. from a settings menu.
-function ActionMethods.Rebind(action, keys: any)
+function ActionMethods.Rebind(action: ActionData, keys: any)
 	local inputs = resolveKeys(keys, ":Rebind()")
 	unbindAction(action)
 	action._inputs = inputs
@@ -202,7 +229,7 @@ function ActionMethods.Rebind(action, keys: any)
 	return action
 end
 
-function ActionMethods.Disable(action)
+function ActionMethods.Disable(action: ActionData)
 	if action._enabled then
 		action._enabled = false
 		unbindAction(action)
@@ -210,7 +237,7 @@ function ActionMethods.Disable(action)
 	return action
 end
 
-function ActionMethods.Enable(action)
+function ActionMethods.Enable(action: ActionData)
 	if not action._enabled then
 		action._enabled = true
 		bindAction(action)
@@ -219,7 +246,7 @@ function ActionMethods.Enable(action)
 end
 
 -- Removes the action completely.
-function ActionMethods.Unbind(action)
+function ActionMethods.Unbind(action: ActionData)
 	unbindAction(action)
 	action._enabled = false
 	action._pressed:DisconnectAll()
@@ -237,7 +264,7 @@ ActionMethods.Destroy = ActionMethods.Unbind
 
 -- Bind(name, keys, callback?) or Bind(name, keys, options, callback?).
 -- The callback runs on press. Binding a name again replaces the old action.
-function Input.Bind(name: string, keys: any, third: any, fourth: any)
+function Input.Bind(name: string, keys: any, third: any, fourth: any): Action
 	if type(name) ~= "string" or name == "" then
 		Errors.raise(`K.Input.Bind expected an action name first, but got {Errors.describe(name)}.`, {
 			'Example: K.Input.Bind("Sprint", "LeftShift", function() end)',
@@ -256,7 +283,7 @@ function Input.Bind(name: string, keys: any, third: any, fourth: any)
 	if actions[name] then
 		actions[name]:Unbind()
 	end
-	local action = Methods.build({
+	local action: ActionData = {
 		Name = name,
 		Keys = table.clone(if type(keys) == "table" then keys else { keys }),
 		_id = ACTION_PREFIX .. name,
@@ -266,17 +293,18 @@ function Input.Bind(name: string, keys: any, third: any, fourth: any)
 		_released = Signal.new(),
 		_down = false,
 		_enabled = true,
-	}, ActionMethods, `Input action "{name}"`)
+	}
+	Methods.build(action, ActionMethods, `Input action "{name}"`)
 	actions[name] = action
 	if callback then
 		action._pressed:Connect(callback)
 	end
 	bindAction(action)
-	return action
+	return action :: any
 end
 
 -- The action bound with this name, or nil.
-function Input.Get(name: string)
+function Input.Get(name: string): Action?
 	return actions[name]
 end
 
@@ -343,5 +371,8 @@ function Input.Aim(maxDistance: number?): (Vector3, BasePart?)
 	end
 	return ray.Origin + ray.Direction * distance, nil
 end
+
+-- The real module type, for init (the early return above is typed any).
+export type Module = typeof(Input)
 
 return Errors.strict(Input, "K.Input")

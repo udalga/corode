@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Quests
 	Goals with rewards. Progress is saved and tracked on the server.
@@ -221,7 +222,7 @@ local function stopTracking(player: Player, id: string, index: number?)
 	for objectiveIndex, stop in byQuest do
 		if index == nil or index == objectiveIndex then
 			byQuest[objectiveIndex] = nil
-			local ok, problem = pcall(stop)
+			local ok, problem = pcall(stop :: any)
 			if not ok then
 				Errors.warn(`Stopping a quest objective errored: {problem}`)
 			end
@@ -358,7 +359,7 @@ local function startQuest(player: Player, id: string, source: string): (boolean,
 	if reason then
 		return false, reason
 	end
-	local ctx = { Player = player, Quest = id, Source = source }
+	local ctx: { [string]: any } = { Player = player, Quest = id, Source = source }
 	if not pipelines.Start:Run(ctx) then
 		return false, ctx.Reason or "cancelled"
 	end
@@ -393,7 +394,7 @@ function waitForRoom(player: Player, id: string, message: string?)
 	end
 	watchedInventories[inventory] = true
 	inventory:OnChanged(function(changedPlayer)
-		for waitingId in waitingForRoom[changedPlayer] or {} do
+		for waitingId in (waitingForRoom[changedPlayer] or {}) :: { [string]: boolean } do
 			if definitions[waitingId].AutoClaim then
 				task.defer(claim, changedPlayer, waitingId, "Auto")
 			end
@@ -415,7 +416,7 @@ function claim(player: Player, id: string, source: string): (boolean, string?)
 		return false, "already claiming"
 	end
 	active.Claiming = true
-	local ctx = { Player = player, Quest = id, Source = source }
+	local ctx: { [string]: any } = { Player = player, Quest = id, Source = source }
 	local ok = pipelines.Complete:Run(ctx)
 	active.Claiming = nil
 	if not ok then
@@ -454,7 +455,7 @@ local function completeCore(ctx): boolean
 
 	-- Hand in items for Collect objectives with Take = true. Taking them first frees
 	-- space for the rewards; if anything fails, they're all given back.
-	local taken = {}
+	local taken: { { any } } = {}
 	local function refund()
 		for _, entry in taken do
 			entry[1]:Add(player, entry[2].Item, entry[2].Amount, nil, "Quest refund")
@@ -526,9 +527,9 @@ function Quests.Objective(name: string, definition: { [string]: any })
 	if definition.Track == nil then
 		Errors.raise(`K.Quests.Objective("{name}") needs a Track function.`)
 	end
-	local fields = table.clone(definition.Fields or {})
+	local fields: { [string]: string } = table.clone(definition.Fields or {})
 	for field, kind in COMMON_FIELDS do
-		fields[field] = kind
+		fields[field :: string] = kind :: string
 	end
 	objectiveTypes[name] = {
 		Fields = fields,
@@ -606,7 +607,7 @@ Quests.Objective("Earn", {
 		if not earnHooked then
 			earnHooked = true
 			Currency.After("Add", function(ctx)
-				for _, listener in table.clone(earnListeners[ctx.Player] or {}) do
+				for _, listener: any in table.clone(earnListeners[ctx.Player] or {}) do
 					listener(ctx.Currency, ctx.New - ctx.Old)
 				end
 			end)

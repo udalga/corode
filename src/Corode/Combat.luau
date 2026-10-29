@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Combat
 	Damage, healing, hitboxes and attacks, decided on the server.
@@ -156,7 +157,7 @@ local function sameTeam(a: Instance, b: Instance): boolean
 		and a:IsA("Player")
 		and b:IsA("Player")
 		and not (a :: Player).Neutral
-		and (a :: Player).Team ~= nil
+		and (a :: Player).Team ~= (nil :: any)
 		and (a :: Player).Team == (b :: Player).Team
 end
 
@@ -493,7 +494,7 @@ function Combat.Attack(name: string, options: { [string]: any }?)
 		Errors.raise(`Attack "{name}" is defined twice.`)
 	end
 	Errors.checkOptions(options, ATTACK_OPTIONS, "K.Combat.Attack")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local projectile = nil
 	if settings.Projectile then
 		Errors.checkOptions(settings.Projectile, PROJECTILE_OPTIONS, `K.Combat.Attack("{name}") Projectile`)
@@ -650,7 +651,7 @@ end
 if IS_SERVER then
 	Net.Declare(HIT_EVENT)
 	Net.Declare(KNOCKBACK_EVENT)
-	Net.On(ATTACK_EVENT, { Guard.String({ Max = 50 }), Guard.Optional(Guard.Vector3()) }, function(player, name, aim)
+	Net.On(ATTACK_EVENT, { Guard.String({ Max = 50 }), Guard.Optional(Guard.Vector3()) }, function(player: Player, name: string, aim: Vector3?)
 		local attack = attacks[name]
 		if attack == nil or not attack.Client or not PlayersModule.IsReady(player) then
 			return

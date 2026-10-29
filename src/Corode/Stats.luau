@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Stats
 	Numbers that describe a player or NPC (speed, damage, defense...), with
@@ -184,7 +185,8 @@ function compute(entity: Entity, name: string): number
 	end
 
 	local add, multiply = 0, 1
-	for _, modifier in entity.Modifiers[name] or {} do
+	local modifiers: { Modifier } = entity.Modifiers[name] or {}
+	for _, modifier in modifiers do
 		add += modifier.Add
 		multiply *= modifier.Multiply
 	end
@@ -210,7 +212,7 @@ local function applyStat(entity: Entity, definition: Definition, value: number)
 		end
 		return
 	end
-	local ok, problem = pcall(apply, entity.Owner, value, character)
+	local ok, problem = pcall(apply :: any, entity.Owner, value, character)
 	if not ok then
 		Errors.warn(`The Apply function of stat "{definition.Name}" errored: {problem}`)
 	end
@@ -234,11 +236,11 @@ local function refresh(entity: Entity)
 end
 
 local function getEntity(owner: Instance): Entity
-	local entity = entities[owner]
-	if entity then
-		return entity
+	local existing = entities[owner]
+	if existing then
+		return existing
 	end
-	entity = { Owner = owner, Bases = {}, Modifiers = {}, Values = {}, Computing = {} }
+	local entity: Entity = { Owner = owner, Bases = {}, Modifiers = {}, Values = {}, Computing = {} }
 	-- Players are tracked from when their data loads; NPCs until they're destroyed.
 	local tracked = if owner:IsA("Player") then owner.Parent == Players else true
 	if tracked then
@@ -317,7 +319,7 @@ function Stats.Define(name: string, options: { [string]: any }?)
 		Errors.raise(`Stat "{name}" is defined twice.`, { "Each stat needs only one K.Stats.Define." })
 	end
 	Errors.checkOptions(options, DEFINE_OPTIONS, "K.Stats.Define")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local definition: Definition = {
 		Name = name,
 		Base = settings.Base or 0,
@@ -442,7 +444,7 @@ function Stats.AddModifier(target: Instance, name: string, options: { [string]: 
 	local owner = checkOwner(target, "K.Stats.AddModifier")
 	getDefinition(name, "K.Stats.AddModifier")
 	Errors.checkOptions(options, MODIFIER_OPTIONS, "K.Stats.AddModifier")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local add = settings.Add or 0
 	local multiply = settings.Multiply or 1
 	local duration = settings.Duration
@@ -631,6 +633,11 @@ function computeChanges.Override(_, callback)
 end
 
 -- K.Stats.Before("Compute" | "AddModifier" | "SetBase", function(ctx) ... end) and friends.
-Hooks._expose(Stats, "K.Stats", { Compute = computeChanges, AddModifier = addModifierHooks, SetBase = setBaseHooks })
+local exposed = Hooks._expose("K.Stats", { Compute = computeChanges, AddModifier = addModifierHooks, SetBase = setBaseHooks })
+Stats.Before = exposed.Before
+Stats.After = exposed.After
+Stats.Use = exposed.Use
+Stats.Middleware = exposed.Middleware
+Stats.Override = exposed.Override
 
 return Errors.strict(Stats, "K.Stats")

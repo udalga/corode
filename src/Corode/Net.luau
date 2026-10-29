@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Net
 	Talk between the server and clients without creating RemoteEvents by hand.
@@ -35,7 +36,7 @@ local Signal = require(script.Parent.Util.Signal)
 local IS_SERVER = RunService:IsServer()
 local IS_STUDIO = RunService:IsStudio()
 local ROOT_NAME = "CorodeNet"
-local CLASS_BY_KIND = { Events = "RemoteEvent", Functions = "RemoteFunction" }
+local CLASS_BY_KIND: { [string]: string } = { Events = "RemoteEvent", Functions = "RemoteFunction" }
 local MAX_NAME_LENGTH = 60
 local NET_OPTIONS = { RateLimit = "number" }
 
@@ -68,7 +69,7 @@ local function checkName(name: any, functionName: string)
 end
 
 -- Accepts (callback, options?) or (types, callback, options?).
-local function parseHandler(functionName: string, first: any, second: any, third: any)
+local function parseHandler(functionName: string, first: any, second: any, third: any): ({ Guard.Validator }?, (...any) -> ...any, any)
 	if type(first) == "function" then
 		return nil, first, second
 	end
@@ -165,14 +166,15 @@ local function getEndpoint(kind: string, name: string): Endpoint
 	local folder = getRoot():FindFirstChild(kind) :: Instance
 	local remote = folder:FindFirstChild(name)
 	if remote == nil then
-		remote = Instance.new(CLASS_BY_KIND[kind])
-		remote.Name = name
-		remote.Parent = folder
+		local created = Instance.new(CLASS_BY_KIND[kind])
+		created.Name = name
+		created.Parent = folder
+		remote = created
 	end
 	local endpoint: Endpoint = { Name = name, Remote = remote, RateLimit = nil, Buckets = {}, Handlers = {} }
 	endpoints[key] = endpoint
 	if kind == "Events" then
-		remote.OnServerEvent:Connect(function(player, ...)
+		(remote :: RemoteEvent).OnServerEvent:Connect(function(player, ...)
 			onServerEvent(endpoint, player, ...)
 		end)
 	end

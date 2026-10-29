@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Methods
 	Builds objects whose methods work with both object:Method() and object.Method(),

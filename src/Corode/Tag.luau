@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Tag
 	Gives a behavior to every object with a tag. Tag parts in Studio (select them,

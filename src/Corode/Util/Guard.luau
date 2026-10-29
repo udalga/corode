@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Guard
 	Checks values you don't control, mostly arguments sent by players. Never trust

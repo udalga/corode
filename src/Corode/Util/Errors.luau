@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Errors
 	Friendly, actionable messages. Every error says what went wrong and, when it

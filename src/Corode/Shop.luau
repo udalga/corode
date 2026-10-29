@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Shop
 	Game passes, developer products, subscriptions, Premium benefits and timed
@@ -181,7 +182,7 @@ end
 -- Every active Multiply for this currency, multiplied together.
 local function multiplierFor(player: Player, currency: string): number
 	local total = 1
-	for name in owned[player] or {} do
+	for name in (owned[player] or {}) :: { [string]: boolean } do
 		local factor = entries[name] and entries[name].Multiply and (entries[name].Multiply :: any)[currency]
 		if factor then
 			total *= factor
@@ -205,12 +206,16 @@ local function setActive(player: Player, entry: Entry, active: boolean, duration
 		return
 	end
 	local wasActive = mine[entry.Name] == true
-	mine[entry.Name] = if active then true else nil
+	if active then
+		mine[entry.Name] = true
+	else
+		mine[entry.Name] = nil
+	end
 	if entry.Kind ~= "Boost" then
 		player:SetAttribute(OWNS_PREFIX .. entry.Name, if active then true else nil)
 	end
 	local modifierId = `Shop:{entry.Name}`
-	for stat, modifier in entry.Stats or {} do
+	for stat, modifier in (entry.Stats or {}) :: { [string]: { Add: number?, Multiply: number? } } do
 		if active then
 			Stats.AddModifier(player, stat, { Id = modifierId, Add = modifier.Add, Multiply = modifier.Multiply, Duration = duration })
 		else
@@ -403,7 +408,7 @@ function Shop.GamePass(name: string, id: number, options: { [string]: any }?)
 	if passesById[id] then
 		Errors.raise(`K.Shop.GamePass: id {id} is already used by "{passesById[id].Name}".`)
 	end
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	Errors.checkOptions(settings, { Multiply = "table", Stats = "table", OnOwned = "function" }, "K.Shop.GamePass")
 	checkBenefits(settings, `K.Shop.GamePass("{name}")`)
 	local entry: Entry = { Name = name, Kind = "GamePass", Id = id, Multiply = settings.Multiply, Stats = settings.Stats, OnOwned = settings.OnOwned }
@@ -501,7 +506,7 @@ function Shop.Subscription(name: string, id: string, options: { [string]: any }?
 	if type(id) ~= "string" or string.match(id, "^EXP%-%d+$") == nil then
 		Errors.raise(`K.Shop.Subscription expected an id like "EXP-1234567890", but got {Errors.describe(id)}.`)
 	end
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	Errors.checkOptions(settings, { Multiply = "table", Stats = "table", OnOwned = "function", OnLost = "function" }, "K.Shop.Subscription")
 	checkBenefits(settings, `K.Shop.Subscription("{name}")`)
 	local entry: Entry = {

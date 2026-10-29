@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Format
 	Turns numbers into text for the screen.

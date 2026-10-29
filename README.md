@@ -23,7 +23,13 @@ K.Start()
 
 ## Install
 
-Download `Corode.rbxm` from the [latest release](https://github.com/udalga/corode/releases/latest) and drag it into ReplicatedStorage. Or build it yourself:
+Download `Corode.rbxm` from the [latest release](https://github.com/udalga/corode/releases/latest) and drag it into ReplicatedStorage, or add it with [Wally](https://wally.run):
+
+```toml
+Corode = "udalga/corode@0.13.0"
+```
+
+Or build it yourself:
 
 ```sh
 rojo build default.project.json -o Corode.rbxm

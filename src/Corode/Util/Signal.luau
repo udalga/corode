@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Signal
 	A lightweight event you can fire yourself.
@@ -11,10 +12,35 @@
 
 local Errors = require(script.Parent.Errors)
 
+export type Connection = {
+	Connected: boolean,
+	Disconnect: (self: Connection) -> (),
+	Destroy: (self: Connection) -> (),
+}
+
+export type Signal = {
+	Connect: (self: Signal, callback: (...any) -> ()) -> Connection,
+	Once: (self: Signal, callback: (...any) -> ()) -> Connection,
+	Fire: (self: Signal, ...any) -> (),
+	Wait: (self: Signal) -> ...any,
+	DisconnectAll: (self: Signal) -> (),
+	Destroy: (self: Signal) -> (),
+}
+
+type ConnectionState = {
+	Connected: boolean,
+	_signal: SignalState,
+	_callback: (...any) -> (),
+}
+
+type SignalState = {
+	_listeners: { ConnectionState },
+}
+
 local Connection = {}
 Connection.__index = Connection
 
-function Connection:Disconnect()
+function Connection.Disconnect(self: ConnectionState)
 	if not self.Connected then
 		return
 	end
@@ -31,28 +57,29 @@ Connection.Destroy = Connection.Disconnect
 local Signal = {}
 Signal.__index = Signal
 
-function Signal.new()
-	return setmetatable({ _listeners = {} }, Signal)
+function Signal.new(): Signal
+	local state: SignalState = { _listeners = {} }
+	return setmetatable(state, Signal) :: any
 end
 
-function Signal:Connect(callback: (...any) -> ())
+function Signal.Connect(self: SignalState, callback: (...any) -> ()): Connection
 	Errors.expect(callback, "function", "the callback", "Signal:Connect")
-	local connection = setmetatable({ Connected = true, _signal = self, _callback = callback }, Connection)
+	local connection: ConnectionState = { Connected = true, _signal = self, _callback = callback }
 	table.insert(self._listeners, connection)
-	return connection
+	return setmetatable(connection, Connection) :: any
 end
 
-function Signal:Once(callback: (...any) -> ())
+function Signal.Once(self: SignalState, callback: (...any) -> ()): Connection
 	Errors.expect(callback, "function", "the callback", "Signal:Once")
-	local connection
-	connection = self:Connect(function(...)
+	local connection: Connection
+	connection = Signal.Connect(self, function(...)
 		connection:Disconnect()
 		callback(...)
 	end)
 	return connection
 end
 
-function Signal:Fire(...: any)
+function Signal.Fire(self: SignalState, ...: any)
 	for _, connection in table.clone(self._listeners) do
 		if connection.Connected then
 			task.spawn(connection._callback, ...)
@@ -61,15 +88,15 @@ function Signal:Fire(...: any)
 end
 
 -- Yields until the next Fire and returns its arguments.
-function Signal:Wait(): ...any
+function Signal.Wait(self: SignalState): ...any
 	local thread = coroutine.running()
-	self:Once(function(...)
+	Signal.Once(self, function(...)
 		task.spawn(thread, ...)
 	end)
 	return coroutine.yield()
 end
 
-function Signal:DisconnectAll()
+function Signal.DisconnectAll(self: SignalState)
 	for _, connection in self._listeners do
 		connection.Connected = false
 	end

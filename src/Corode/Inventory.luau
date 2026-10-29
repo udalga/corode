@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Inventory
 	Holds items for each player. Create as many as you like (a backpack, a bank,
@@ -59,6 +60,40 @@ local OPERATIONS = { "Add", "Remove", "Use", "Move" }
 local CREATE_OPTIONS = { Slots = "number", Saved = "boolean", ClientCanUse = "boolean", ClientCanMove = "boolean" }
 
 export type Stack = { Id: string, Amount: number, Data: { [string]: any }? }
+
+-- An inventory from K.Inventory.Create (server) or K.Inventory.Get. On the
+-- server, methods take the player first; on clients the inventory is a view of
+-- your own: Get(), Count(item), Has(item, amount?), OnChanged(fn), Use(slot), Move(from, to).
+export type Inventory = {
+	Name: string,
+	Changed: Signal.Signal,
+	Add: (self: Inventory, player: Player, item: string, amount: number?, data: { [string]: any }?, source: string?) -> (boolean, string?),
+	Remove: (self: Inventory, player: Player, item: string, amount: number?, source: string?) -> (boolean, string?),
+	Use: (self: Inventory, ...any) -> (boolean, string?),
+	Move: (self: Inventory, ...any) -> (boolean, string?),
+	Count: (self: Inventory, ...any) -> number,
+	Has: (self: Inventory, ...any) -> boolean,
+	Fits: (self: Inventory, player: Player, items: { [string]: number }) -> boolean,
+	Get: (self: Inventory, player: Player?) -> { Stack },
+	Clear: (self: Inventory, player: Player) -> (),
+	OnChanged: (self: Inventory, callback: (...any) -> ()) -> Signal.Connection,
+	Before: (self: Inventory, operation: string, callback: (Pipeline.Context) -> (), priority: number?) -> () -> (),
+	After: (self: Inventory, operation: string, callback: (Pipeline.Context) -> ()) -> () -> (),
+	Middleware: (self: Inventory, operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (self: Inventory, operation: string, callback: (Pipeline.Context) -> boolean?) -> (),
+}
+
+type InventoryData = {
+	Name: string,
+	Slots: number,
+	Saved: boolean,
+	ClientCanUse: boolean,
+	ClientCanMove: boolean,
+	Changed: Signal.Signal,
+	_pipelines: { [string]: Pipeline.Pipeline },
+}
+
+type ViewData = { Name: string, Changed: Signal.Signal, _stacks: { Stack } }
 
 local Inventory = {}
 local ServerMethods = {}
@@ -158,7 +193,7 @@ end
 -- Server internals
 ------------------------------------------------------------------------------
 
-local function stacksFor(player: Player, inventory): { Stack }?
+local function stacksFor(player: Player, inventory: InventoryData): { Stack }?
 	local sections
 	if inventory.Saved then
 		local profile = Data._getProfile(player)
@@ -178,7 +213,7 @@ local function stacksFor(player: Player, inventory): { Stack }?
 end
 
 -- Sends the inventory to its owner once per frame, however many changes happened.
-local function scheduleSync(player: Player, inventory)
+local function scheduleSync(player: Player, inventory: InventoryData)
 	local pending = pendingSync[player]
 	if pending == nil then
 		pending = {}
@@ -197,14 +232,14 @@ local function scheduleSync(player: Player, inventory)
 	end)
 end
 
-local function changed(player: Player, inventory)
+local function changed(player: Player, inventory: InventoryData)
 	scheduleSync(player, inventory)
 	inventory.Changed:Fire(player)
 end
 
 -- Middleware may change ctx.Item and ctx.Amount, so the cores check them again.
 local function checkContext(ctx: Pipeline.Context): (Items.Definition?, { Stack }?)
-	local definition = type(ctx.Item) == "string" and Items._getDefinition(ctx.Item)
+	local definition = if type(ctx.Item) == "string" then Items._getDefinition(ctx.Item) else nil
 	if not definition then
 		ctx.Reason = "unknown item"
 		return nil, nil
@@ -338,7 +373,7 @@ local function moveCore(ctx): boolean
 end
 
 -- Runs an operation for a loaded player. Returns (succeeded, reason).
-local function run(inventory, operation: string, player: Player, fields: { [string]: any }): (boolean, string?)
+local function run(inventory: InventoryData, operation: string, player: Player, fields: { [string]: any }): (boolean, string?)
 	local stacks = stacksFor(player, inventory)
 	if stacks == nil then
 		Errors.warn(`{player.Name}'s data isn't loaded, so their {inventory.Name} couldn't change.`, {
@@ -391,7 +426,7 @@ local function checkSlot(slot: any, functionName: string)
 	end
 end
 
-local function getPipeline(inventory, operation: any, functionName: string)
+local function getPipeline(inventory: InventoryData, operation: any, functionName: string)
 	local pipeline = inventory._pipelines[operation]
 	if pipeline == nil then
 		Errors.raise(
@@ -406,7 +441,7 @@ end
 -- Server inventory methods (Backpack:Add(...) etc.)
 ------------------------------------------------------------------------------
 
-function ServerMethods.Add(inventory, player: Player, item: string, amount: number?, data: { [string]: any }?, source: string?)
+function ServerMethods.Add(inventory: InventoryData, player: Player, item: string, amount: number?, data: { [string]: any }?, source: string?)
 	checkPlayer(player, ":Add()")
 	checkItem(item, ":Add()")
 	local value = checkAmount(amount, ":Add()")
@@ -416,7 +451,7 @@ function ServerMethods.Add(inventory, player: Player, item: string, amount: numb
 	return run(inventory, "Add", player, { Item = item, Amount = value, Data = data, Source = source })
 end
 
-function ServerMethods.Remove(inventory, player: Player, item: string, amount: number?, source: string?)
+function ServerMethods.Remove(inventory: InventoryData, player: Player, item: string, amount: number?, source: string?)
 	checkPlayer(player, ":Remove()")
 	checkItem(item, ":Remove()")
 	local value = checkAmount(amount, ":Remove()")
@@ -424,28 +459,28 @@ function ServerMethods.Remove(inventory, player: Player, item: string, amount: n
 end
 
 -- Runs the item's OnUse for the stack in `slot`.
-function ServerMethods.Use(inventory, player: Player, slot: number, source: string?)
+function ServerMethods.Use(inventory: InventoryData, player: Player, slot: number, source: string?)
 	checkPlayer(player, ":Use()")
 	checkSlot(slot, ":Use()")
 	return run(inventory, "Use", player, { Slot = slot, Source = source })
 end
 
 -- Swaps two slots, or merges them when they hold the same stackable item.
-function ServerMethods.Move(inventory, player: Player, from: number, to: number, source: string?)
+function ServerMethods.Move(inventory: InventoryData, player: Player, from: number, to: number, source: string?)
 	checkPlayer(player, ":Move()")
 	checkSlot(from, ":Move()")
 	checkSlot(to, ":Move()")
 	return run(inventory, "Move", player, { From = from, To = to, Source = source })
 end
 
-function ServerMethods.Count(inventory, player: Player, item: string): number
+function ServerMethods.Count(inventory: InventoryData, player: Player, item: string): number
 	checkPlayer(player, ":Count()")
 	checkItem(item, ":Count()")
 	local stacks = stacksFor(player, inventory)
 	return if stacks then count(stacks, item) else 0
 end
 
-function ServerMethods.Has(inventory, player: Player, item: string, amount: number?): boolean
+function ServerMethods.Has(inventory: InventoryData, player: Player, item: string, amount: number?): boolean
 	checkPlayer(player, ":Has()")
 	checkItem(item, ":Has()")
 	local value = checkAmount(amount, ":Has()")
@@ -454,7 +489,7 @@ function ServerMethods.Has(inventory, player: Player, item: string, amount: numb
 end
 
 -- True if all of these items fit at the same time, e.g. Backpack:Fits(player, { Apple = 3, Sword = 1 }).
-function ServerMethods.Fits(inventory, player: Player, items: { [string]: number }): boolean
+function ServerMethods.Fits(inventory: InventoryData, player: Player, items: { [string]: number }): boolean
 	checkPlayer(player, ":Fits()")
 	Errors.expect(items, "table", "the items", ":Fits()")
 	local stacks = stacksFor(player, inventory)
@@ -477,13 +512,13 @@ function ServerMethods.Fits(inventory, player: Player, items: { [string]: number
 end
 
 -- A copy of the player's stacks. Change the inventory with Add/Remove/Move, not the copy.
-function ServerMethods.Get(inventory, player: Player): { Stack }
+function ServerMethods.Get(inventory: InventoryData, player: Player): { Stack }
 	checkPlayer(player, ":Get()")
 	return deepCopy(stacksFor(player, inventory) or {})
 end
 
 -- Removes everything (skips hooks).
-function ServerMethods.Clear(inventory, player: Player)
+function ServerMethods.Clear(inventory: InventoryData, player: Player)
 	checkPlayer(player, ":Clear()")
 	local stacks = stacksFor(player, inventory)
 	if stacks then
@@ -493,30 +528,30 @@ function ServerMethods.Clear(inventory, player: Player)
 end
 
 -- Runs callback(player) after any change to a player's copy of this inventory.
-function ServerMethods.OnChanged(inventory, callback: (Player) -> ())
+function ServerMethods.OnChanged(inventory: InventoryData, callback: (Player) -> ())
 	Errors.expect(callback, "function", "the callback", ":OnChanged()")
 	return inventory.Changed:Connect(callback)
 end
 
 -- Hooks, like K.Currency's: change ctx fields or ctx:Cancel("reason").
-function ServerMethods.Before(inventory, operation: string, callback: (Pipeline.Context) -> (), priority: number?)
+function ServerMethods.Before(inventory: InventoryData, operation: string, callback: (Pipeline.Context) -> (), priority: number?)
 	Errors.expect(callback, "function", "the callback", ":Before()")
 	return getPipeline(inventory, operation, ":Before()"):Before(callback, priority)
 end
 
-function ServerMethods.After(inventory, operation: string, callback: (Pipeline.Context) -> ())
+function ServerMethods.After(inventory: InventoryData, operation: string, callback: (Pipeline.Context) -> ())
 	Errors.expect(callback, "function", "the callback", ":After()")
 	return getPipeline(inventory, operation, ":After()"):After(callback)
 end
 
 -- Full middleware: callback(ctx, next). Call next() to continue.
-function ServerMethods.Middleware(inventory, operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?)
+function ServerMethods.Middleware(inventory: InventoryData, operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?)
 	Errors.expect(callback, "function", "the callback", ":Middleware()")
 	return getPipeline(inventory, operation, ":Middleware()"):Use(callback, priority)
 end
 
 -- Replaces an operation's core (advanced). Return false to fail.
-function ServerMethods.Override(inventory, operation: string, callback: (Pipeline.Context) -> boolean?)
+function ServerMethods.Override(inventory: InventoryData, operation: string, callback: (Pipeline.Context) -> boolean?)
 	Errors.expect(callback, "function", "the callback", ":Override()")
 	getPipeline(inventory, operation, ":Override()"):Override(callback)
 end
@@ -525,15 +560,16 @@ end
 -- Client inventory views
 ------------------------------------------------------------------------------
 
-local function newView(name: string)
-	return Methods.build({
+local function newView(name: string): ViewData
+	local view: ViewData = {
 		Name = name,
 		Changed = Signal.new(),
 		_stacks = {},
-	}, ClientMethods, `Inventory "{name}"`)
+	}
+	return Methods.build(view, ClientMethods, `Inventory "{name}"`)
 end
 
-local function getView(name: string)
+local function getView(name: string): ViewData
 	local view = inventories[name]
 	if view == nil then
 		view = newView(name)
@@ -542,33 +578,33 @@ local function getView(name: string)
 	return view
 end
 
-function ClientMethods.Get(view): { Stack }
+function ClientMethods.Get(view: ViewData): { Stack }
 	return deepCopy(view._stacks)
 end
 
-function ClientMethods.Count(view, item: string): number
+function ClientMethods.Count(view: ViewData, item: string): number
 	return count(view._stacks, item)
 end
 
-function ClientMethods.Has(view, item: string, amount: number?): boolean
+function ClientMethods.Has(view: ViewData, item: string, amount: number?): boolean
 	return count(view._stacks, item) >= (amount or 1)
 end
 
 -- Runs callback(stacks) now and after every change.
-function ClientMethods.OnChanged(view, callback: ({ Stack }) -> ())
+function ClientMethods.OnChanged(view: ViewData, callback: ({ Stack }) -> ())
 	Errors.expect(callback, "function", "the callback", ":OnChanged()")
 	task.spawn(callback, deepCopy(view._stacks))
 	return view.Changed:Connect(callback)
 end
 
 -- Asks the server to use the item in `slot` (the server must allow it with ClientCanUse).
-function ClientMethods.Use(view, slot: number)
+function ClientMethods.Use(view: ViewData, slot: number)
 	checkSlot(slot, ":Use()")
 	Net.Fire(USE_EVENT, view.Name, slot)
 end
 
 -- Asks the server to move a stack (the server must allow it with ClientCanMove).
-function ClientMethods.Move(view, from: number, to: number)
+function ClientMethods.Move(view: ViewData, from: number, to: number)
 	checkSlot(from, ":Move()")
 	checkSlot(to, ":Move()")
 	Net.Fire(MOVE_EVENT, view.Name, from, to)
@@ -581,7 +617,7 @@ end
 -- Server: creates an inventory every player gets their own copy of.
 -- Options: Slots (max stacks, default 500), Saved (true),
 -- ClientCanUse / ClientCanMove (false): let players use or rearrange items from a LocalScript.
-function Inventory.Create(name: string, options: { Slots: number?, Saved: boolean?, ClientCanUse: boolean?, ClientCanMove: boolean? }?)
+function Inventory.Create(name: string, options: { Slots: number?, Saved: boolean?, ClientCanUse: boolean?, ClientCanMove: boolean? }?): Inventory
 	if not IS_SERVER then
 		Errors.raise("K.Inventory.Create only works in a server Script.", {
 			'On the client, use K.Inventory.Get("Name") to read it.',
@@ -596,13 +632,13 @@ function Inventory.Create(name: string, options: { Slots: number?, Saved: boolea
 		Errors.raise(`Inventory "{name}" is created twice.`, { `Use K.Inventory.Get("{name}") to reach it from other scripts.` })
 	end
 	Errors.checkOptions(options, CREATE_OPTIONS, "K.Inventory.Create")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local slots = settings.Slots or MAX_SLOTS
 	if not isWhole(slots, 1, MAX_SLOTS) then
 		Errors.raise(`K.Inventory.Create("{name}"): Slots must be a whole number from 1 to {MAX_SLOTS}.`)
 	end
 
-	local inventory = {
+	local inventory: InventoryData = {
 		Name = name,
 		Slots = slots,
 		Saved = settings.Saved ~= false,
@@ -628,14 +664,14 @@ function Inventory.Create(name: string, options: { Slots: number?, Saved: boolea
 			scheduleSync(player, inventory)
 		end
 	end
-	return inventory
+	return inventory :: any
 end
 
 -- Server: the inventory created with this name. Client: a read-only view of yours.
-function Inventory.Get(name: string)
+function Inventory.Get(name: string): Inventory
 	if not IS_SERVER then
 		Errors.expect(name, "string", "the inventory name", "K.Inventory.Get")
-		return getView(name)
+		return getView(name) :: any
 	end
 	local inventory = inventories[name]
 	if inventory == nil then
@@ -652,7 +688,7 @@ function Inventory.Names(): { string }
 end
 
 -- Server: the first inventory created; used when an inventory isn't named.
-function Inventory.Default()
+function Inventory.Default(): Inventory
 	local name = inventoryNames[1]
 	if name == nil then
 		Errors.raise("No inventory exists yet.", { 'Create one first: K.Inventory.Create("Backpack")' })

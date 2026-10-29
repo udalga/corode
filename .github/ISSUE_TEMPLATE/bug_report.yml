@@ -11,7 +11,7 @@ body:
     attributes:
       label: Corode version
       description: The `Version` line at the top of `ReplicatedStorage.Corode`, or the release you downloaded.
-      placeholder: "0.12.0"
+      placeholder: "0.13.0"
     validations:
       required: true
   - type: textarea

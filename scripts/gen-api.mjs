@@ -71,10 +71,12 @@ function signatureAt(lines, index) {
 
 function parse(name, file) {
   const lines = readFileSync(join(SRC, file + '.luau'), 'utf8').split('\n')
+  // Table.Name(self, ...) is a method on the table's objects, not a module function.
+  const isSelfMethod = (line) => /^function \w+\.\w+(<[^>]*>)?\(self\b/.test(line)
   const prefixCounts = {}
   for (const line of lines) {
     const match = /^function (\w+)\./.exec(line)
-    if (match) prefixCounts[match[1]] = (prefixCounts[match[1]] ?? 0) + 1
+    if (match && !isSelfMethod(line)) prefixCounts[match[1]] = (prefixCounts[match[1]] ?? 0) + 1
   }
   const owners = { ...METHOD_OWNERS, ...(MODULE_METHOD_OWNERS[name] ?? {}) }
   const owner = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])
@@ -89,13 +91,13 @@ function parse(name, file) {
       const [, table, separator, member] = fn
       const signature = signatureAt(lines, index)
       const comment = commentAbove(lines, index)
-      if (separator === '.' && table === owner) {
+      if (separator === '.' && table === owner && !isSelfMethod(line)) {
         functions.push({ title: `K.${name}.${member}`, code: 'K.' + name + signature.slice(table.length), comment })
       } else if (owners[table]) {
         const label = owners[table]
         let params = signature.slice(table.length + 1 + member.length)
         // Methods written as Table.Name(object, ...) take the object as their first parameter.
-        if (separator === '.') params = params.replace(/^\((\w+)(\s*:\s*\w+)?(,\s*)?/, '(')
+        if (separator === '.') params = params.replace(/^(<[^>]*>)?\((\w+)(\s*:\s*\w+)?(,\s*)?/, '$1(')
         ;(methods[label] ??= []).push({ title: `${label}:${member}`, code: `${label}:${member}${params}`, comment })
       }
     }

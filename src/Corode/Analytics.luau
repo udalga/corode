@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Analytics
 	Sends what happens in your game to the Analytics page of the Creator Dashboard.
@@ -169,7 +170,7 @@ end
 function Analytics.Enable(options: { Economy: boolean?, Quests: boolean?, Print: boolean? }?)
 	requireServer("K.Analytics.Enable")
 	Errors.checkOptions(options, { Economy = "boolean", Quests = "boolean", Print = "boolean" }, "K.Analytics.Enable")
-	for key, value in options or {} do
+	for key, value in (options or {}) :: { [string]: any } do
 		settings[key] = value
 	end
 	if enabled then

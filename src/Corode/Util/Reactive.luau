@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Reactive
 	Values that tell everything using them when they change.
@@ -19,6 +20,26 @@ local TweenService = game:GetService("TweenService")
 
 local Errors = require(script.Parent.Errors)
 
+export type State = {
+	Get: (self: State) -> any,
+	Peek: (self: State) -> any,
+	Set: (self: State, value: any) -> (),
+	Update: (self: State, transform: (any) -> any) -> (),
+	OnChanged: (self: State, callback: (any, any) -> ()) -> { Disconnect: () -> (), Destroy: () -> () },
+}
+
+type Listener = { Active: boolean, Callback: (any, any) -> () }
+
+type StateData = {
+	_value: any,
+	_kind: string,
+	_listeners: { Listener },
+	_active: boolean,
+	_activate: (() -> ())?,
+	_deactivate: (() -> ())?,
+	_read: (() -> any)?,
+}
+
 local Reactive = {}
 
 local State = {}
@@ -31,7 +52,7 @@ local function isState(value: any): boolean
 	return type(value) == "table" and getmetatable(value) == State
 end
 
-local function notify(state, new: any, old: any)
+local function notify(state: StateData, new: any, old: any)
 	for _, entry in table.clone(state._listeners) do
 		if entry.Active then
 			task.spawn(entry.Callback, new, old)
@@ -41,7 +62,7 @@ end
 
 -- Changes the stored value and tells listeners. Tables always count as a change,
 -- since their contents may have changed.
-local function assign(state, value: any)
+local function assign(state: StateData, value: any)
 	local old = state._value
 	if value == old and type(value) ~= "table" then
 		return
@@ -50,20 +71,21 @@ local function assign(state, value: any)
 	notify(state, value, old)
 end
 
-local function newState(value: any, kind: string)
-	return setmetatable({
+local function newState(value: any, kind: string): StateData
+	local data: StateData = {
 		_value = value,
 		_kind = kind,
 		_listeners = {},
 		_active = false,
-		_activate = nil :: (() -> ())?,
-		_deactivate = nil :: (() -> ())?,
-		_read = nil :: (() -> any)?,
-	}, State)
+		_activate = nil,
+		_deactivate = nil,
+		_read = nil,
+	}
+	return setmetatable(data, State) :: any
 end
 
 -- Adds a listener. Derived values start following their sources with their first listener.
-local function listen(state, callback: (any, any) -> ()): () -> ()
+local function listen(state: StateData, callback: (any, any) -> ()): () -> ()
 	local entry = { Callback = callback, Active = true }
 	table.insert(state._listeners, entry)
 	if not state._active and state._activate then
@@ -87,7 +109,7 @@ local function listen(state, callback: (any, any) -> ()): () -> ()
 end
 
 -- Reads the value. Inside a Computed, this also makes the Computed follow it.
-function State:Get(): any
+function State.Get(self: StateData): any
 	if tracking then
 		tracking[self] = true
 	end
@@ -98,14 +120,14 @@ function State:Get(): any
 end
 
 -- Reads the value without following it.
-function State:Peek(): any
+function State.Peek(self: StateData): any
 	if not self._active and self._read then
 		return self._read()
 	end
 	return self._value
 end
 
-function State:Set(value: any)
+function State.Set(self: StateData, value: any)
 	if self._kind ~= "State" then
 		Errors.raise(`A {self._kind} can't be set; it follows the values it's made from.`)
 	end
@@ -113,13 +135,13 @@ function State:Set(value: any)
 end
 
 -- Sets the value from the current one, e.g. open:Update(function(isOpen) return not isOpen end).
-function State:Update(transform: (any) -> any)
+function State.Update(self: StateData, transform: (any) -> any)
 	Errors.expect(transform, "function", "the update function", "State:Update")
-	self:Set(transform(self._value))
+	State.Set(self, transform(self._value))
 end
 
 -- Runs callback(new, old) after every change. Returns a connection with :Disconnect().
-function State:OnChanged(callback: (any, any) -> ())
+function State.OnChanged(self: StateData, callback: (any, any) -> ())
 	Errors.expect(callback, "function", "the callback", "State:OnChanged")
 	local stop = listen(self, callback)
 	return { Disconnect = stop, Destroy = stop }
@@ -143,12 +165,12 @@ end
 -- Public API
 ------------------------------------------------------------------------------
 
-function Reactive.State(initial: any)
-	return newState(initial, "State")
+function Reactive.State(initial: any): State
+	return newState(initial, "State") :: any
 end
 
 -- A value worked out from other States; it updates when any State it reads changes.
-function Reactive.Computed(compute: () -> any)
+function Reactive.Computed(compute: () -> any): State
 	Errors.expect(compute, "function", "the function", "K.UI.Computed")
 	local state = newState(nil, "Computed")
 	local stops: { () -> () } = {}
@@ -191,12 +213,12 @@ function Reactive.Computed(compute: () -> any)
 		end
 		table.clear(stops)
 	end
-	return state
+	return state :: any
 end
 
 -- Follows `source`, gliding to each new value over `duration` seconds.
 -- Works with numbers, Color3, UDim, UDim2, Vector2, Vector3 and CFrame.
-function Reactive.Animated(source: any, duration: number?, style: Enum.EasingStyle?)
+function Reactive.Animated(source: any, duration: number?, style: Enum.EasingStyle?): State
 	if not isState(source) then
 		Errors.raise(`K.UI.Animated expected a State to follow, but got {Errors.describe(source)}.`)
 	end
@@ -245,7 +267,7 @@ function Reactive.Animated(source: any, duration: number?, style: Enum.EasingSty
 			connection = nil
 		end
 	end
-	return state
+	return state :: any
 end
 
 Reactive.isState = isState

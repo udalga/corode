@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Global
 	Things that span every server of your game.
@@ -33,7 +34,6 @@
 ]]
 
 local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -348,7 +348,7 @@ function Global.Event(name: string, options: { [string]: any }?)
 	if eventDefinitions[name] then
 		Errors.raise(`Global event "{name}" is defined twice.`)
 	end
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	Errors.checkOptions(settings, { Multiply = "table", OnStart = "function", OnEnd = "function" }, "K.Global.Event")
 	for currency, factor in settings.Multiply or {} do
 		if not Currency.Exists(currency) then
@@ -632,9 +632,12 @@ local function readTop(board: Board)
 		return
 	end
 	local page = pages:GetCurrentPage()
-	local userIds = {}
+	local userIds: { number } = {}
 	for _, item in page do
-		table.insert(userIds, tonumber(item.key))
+		local userId = tonumber(item.key)
+		if userId then
+			table.insert(userIds, userId)
+		end
 	end
 	namesFor(userIds)
 	local top = {}

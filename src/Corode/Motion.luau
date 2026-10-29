@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Motion
 	One-line animations for parts, models and GUI.
@@ -22,7 +23,7 @@ local Errors = require(script.Parent.Util.Errors)
 
 local Motion = {}
 
-local FADE_PROPERTIES = {
+local FADE_PROPERTIES: { { any } } = {
 	{ "BasePart", { "Transparency" } },
 	{ "Decal", { "Transparency" } },
 	{ "UIStroke", { "Transparency" } },
@@ -35,7 +36,7 @@ local FADE_PROPERTIES = {
 }
 
 -- Properties Hide switches off, per class, and the "off" value for each.
-local HIDE_PROPERTIES = {
+local HIDE_PROPERTIES: { { any } } = {
 	{ "BasePart", { CanCollide = false, CanTouch = false, CanQuery = false } },
 	{ "ClickDetector", { MaxActivationDistance = 0 } },
 	{ "ProximityPrompt", { Enabled = false } },
@@ -97,7 +98,7 @@ local function easing(style: any): Enum.EasingStyle
 		return Enum.EasingStyle.Quad
 	end
 	if typeof(style) == "EnumItem" and style.EnumType == Enum.EasingStyle then
-		return style
+		return style :: any
 	end
 	local names = {}
 	for _, item in Enum.EasingStyle:GetEnumItems() do

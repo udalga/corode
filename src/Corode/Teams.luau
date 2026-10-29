@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Teams
 	Teams players belong to, shown on the player list. Built on Roblox's Teams
@@ -120,7 +121,7 @@ function Teams.Define(name: string, options: { Color: any?, AutoAssign: boolean?
 		Errors.raise(`Team "{name}" is defined twice.`)
 	end
 	Errors.checkOptions(options, { Color = "Color3|BrickColor", AutoAssign = "boolean" }, "K.Teams.Define")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 
 	local used = {}
 	for _, team in TeamsService:GetChildren() do
@@ -128,18 +129,19 @@ function Teams.Define(name: string, options: { Color: any?, AutoAssign: boolean?
 			used[team.TeamColor.Number] = team.Name
 		end
 	end
-	local brickColor
+	local brickColor: BrickColor? = nil
 	if settings.Color ~= nil then
-		brickColor = toBrickColor(settings.Color, name)
-		local taken = used[brickColor.Number]
+		local chosen = toBrickColor(settings.Color, name)
+		brickColor = chosen
+		local taken = used[chosen.Number]
 		if taken then
-			Errors.raise(`K.Teams.Define("{name}"): its color is too close to team "{taken}" ({brickColor.Name}).`, {
+			Errors.raise(`K.Teams.Define("{name}"): its color is too close to team "{taken}" ({chosen.Name}).`, {
 				"Roblox tells teams apart by BrickColor, so pick colors further apart.",
 			})
 		end
 	else
 		for _, colorName in DEFAULT_COLORS do
-			local candidate = BrickColor.new(colorName)
+			local candidate = BrickColor.new(colorName :: any)
 			if not used[candidate.Number] then
 				brickColor = candidate
 				break
@@ -152,7 +154,7 @@ function Teams.Define(name: string, options: { Color: any?, AutoAssign: boolean?
 
 	local team = Instance.new("Team")
 	team.Name = name
-	team.TeamColor = brickColor
+	team.TeamColor = brickColor :: BrickColor
 	team.AutoAssignable = settings.AutoAssign == true
 	team:SetAttribute(TEAM_ATTRIBUTE, true)
 	team:SetAttribute(SCORE_ATTRIBUTE, 0)
@@ -198,7 +200,7 @@ function Teams.Remove(player: Player)
 	requireServer("K.Teams.Remove")
 	checkPlayer(player, "K.Teams.Remove")
 	local old = Teams.Of(player)
-	player.Team = nil
+	player.Team = nil :: any
 	player.Neutral = true
 	if old ~= nil then
 		Teams.Changed:Fire(player, nil, old)
@@ -263,7 +265,7 @@ end
 -- Spreads players evenly over teams. Defaults: every ready player, every team.
 function Teams.Balance(players: { Player }?, names: { string }?)
 	requireServer("K.Teams.Balance")
-	local list = players or PlayersModule.GetAll()
+	local list: { Player } = players or PlayersModule.GetAll()
 	local teamNames = names or Teams.Names()
 	if #teamNames == 0 then
 		Errors.raise("K.Teams.Balance needs at least one team. Define them with K.Teams.Define.")
@@ -280,7 +282,7 @@ function Teams.Balance(players: { Player }?, names: { string }?)
 end
 
 function Teams.Score(name: string): number
-	return getTeam(name, "K.Teams.Score"):GetAttribute(SCORE_ATTRIBUTE) or 0
+	return (getTeam(name, "K.Teams.Score"):GetAttribute(SCORE_ATTRIBUTE) or 0) :: number
 end
 
 function Teams.SetScore(name: string, value: number)

@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Rewards
 	One way to describe a reward, used everywhere (quests, daily rewards, codes...):
@@ -116,9 +117,9 @@ function Rewards.check(bundle: any, functionName: string)
 				Errors.raise(`{functionName}: reward {key} should be a number of 0 or more, but got {Errors.describe(value)}.`)
 			end
 		else
-			local known = Currency.Names()
+			local known: { string } = Currency.Names()
 			for field in BUNDLE_FIELDS do
-				table.insert(known, field)
+				table.insert(known, field :: string)
 			end
 			Errors.raise(
 				`{functionName}: {Errors.quote(key)} isn't a currency or a reward field.`,
@@ -209,7 +210,7 @@ end
 -- quests, playtime, rounds, shop rewards and When chains alike (see ctx.Source).
 local giveHooks = Hooks.new("Rewards.Give", function(ctx)
 	local bundle = ctx.Bundle
-	local valid, problem = pcall(Rewards.check, bundle, "A K.Rewards hook")
+	local valid, problem = pcall(Rewards.check :: any, bundle, "A K.Rewards hook")
 	if not valid then
 		Errors.warn(`A K.Rewards hook left a reward that can't be given: {problem}`)
 		ctx.Reason = "That reward can't be given right now."
@@ -275,7 +276,12 @@ end
 -- Rules for every reward: K.Rewards.Before("Give", function(ctx) ... end).
 -- ctx: Player, Bundle (a copy you can change), Source ("Daily", "Code", "Quest",
 -- "Playtime", "Shop", "Round", "When" or your own), Cancel(reason).
-Hooks._expose(Rewards, "K.Rewards", { Give = giveHooks })
+local exposed = Hooks._expose("K.Rewards", { Give = giveHooks })
+Rewards.Before = exposed.Before
+Rewards.After = exposed.After
+Rewards.Use = exposed.Use
+Rewards.Middleware = exposed.Middleware
+Rewards.Override = exposed.Override
 
 ------------------------------------------------------------------------------
 -- Daily rewards
@@ -362,7 +368,7 @@ function Rewards.DailyStatus(player: Player?): { Streak: number, Ready: boolean 
 		publishDaily(target :: Player)
 	end
 	return {
-		Streak = (target :: Player):GetAttribute(STREAK_ATTRIBUTE) or 0,
+		Streak = ((target :: Player):GetAttribute(STREAK_ATTRIBUTE) or 0) :: number,
 		Ready = (target :: Player):GetAttribute(READY_ATTRIBUTE) == true,
 	}
 end

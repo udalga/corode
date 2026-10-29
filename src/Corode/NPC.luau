@@ -1,3 +1,4 @@
+--!strict
 --[[
 	NPC
 	Computer-controlled characters with brains you write (or pick ready-made).
@@ -92,6 +93,74 @@ local SPAWN_OPTIONS = {
 	Parent = "Instance",
 }
 
+export type Brain = {
+	Initial: string,
+	States: { [string]: any },
+	StateNames: { string },
+	Always: ((NPC, number) -> string?)?,
+	TickRate: number,
+}
+
+-- An NPC from K.NPC.Spawn or K.NPC.Control. Brain functions receive it.
+export type NPC = {
+	Model: Model,
+	Humanoid: Humanoid,
+	Root: BasePart,
+	Name: string,
+	State: string,
+	Home: Vector3,
+	Memory: { [any]: any },
+	Moving: boolean,
+	Dead: boolean,
+	MoveTo: (self: NPC, target: any) -> (),
+	Stop: (self: NPC) -> (),
+	Wander: (self: NPC, radius: number?) -> (),
+	Face: (self: NPC, target: any) -> (),
+	Attack: (self: NPC, name: string, target: any?) -> { Instance },
+	NearestPlayer: (self: NPC, range: number, needsSight: boolean?) -> (Player?, number?),
+	CanSee: (self: NPC, target: any) -> boolean,
+	DistanceTo: (self: NPC, target: any) -> number,
+	SetState: (self: NPC, name: string) -> (),
+	StateTime: (self: NPC) -> number,
+	OnDeath: (self: NPC, callback: (NPC, Instance?) -> ()) -> Signal.Connection,
+	Destroy: (self: NPC) -> (),
+}
+
+export type Spawner = {
+	Count: (self: Spawner) -> number,
+	All: (self: Spawner) -> { NPC },
+	Stop: (self: Spawner, destroyAll: boolean?) -> (),
+	Destroy: (self: Spawner, destroyAll: boolean?) -> (),
+}
+
+type NpcData = {
+	Model: Model,
+	Humanoid: Humanoid,
+	Root: BasePart,
+	Name: string,
+	State: string,
+	Home: Vector3,
+	Memory: { [any]: any },
+	Moving: boolean,
+	Dead: boolean,
+	-- Typed as optional, but stored as false: reading a missing member raises.
+	_brain: Brain?,
+	_reward: any,
+	_corpseTime: number,
+	_died: Signal.Signal,
+	_killer: Instance?,
+	_busy: boolean,
+	_goal: Vector3?,
+	_moveToken: number,
+	_pathStarted: number,
+	_stateStarted: number,
+	_lastThink: number,
+	_nextThink: number,
+	_agent: { [string]: any },
+}
+
+type SpawnerData = { _npcs: { NpcData }, _running: boolean }
+
 local NPC = {}
 local NpcMethods = {}
 local SpawnerMethods = {}
@@ -102,14 +171,14 @@ NPC.Died = Signal.new()
 NPC.Spawned = Signal.new()
 NPC.Behaviors = {}
 
-local active: { [Model]: any } = {}
+local active: { [Model]: NpcData } = {}
 
 ------------------------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------------------------
 
 -- Runs a brain function, reporting errors once instead of crashing the NPC.
-local function safeCall(npc, callback: (...any) -> any, ...: any): any
+local function safeCall(npc: NpcData, callback: (...any) -> any, ...: any): any
 	local ok, result = pcall(callback, npc, ...)
 	if not ok then
 		Errors.warnOnce(`npc-error:{npc.Name}:{result}`, `NPC "{npc.Name}" (state {npc.State}) errored: {result}`)
@@ -154,8 +223,11 @@ end
 
 local function isAlive(target: any): boolean
 	local character = if typeof(target) == "Instance" and target:IsA("Player") then target.Character else target
-	local humanoid = typeof(character) == "Instance" and character:FindFirstChildOfClass("Humanoid")
-	return humanoid ~= nil and humanoid ~= false and humanoid.Health > 0
+	if typeof(character) ~= "Instance" then
+		return false
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.Health > 0
 end
 
 local function characters(): { Instance }
@@ -169,7 +241,7 @@ local function characters(): { Instance }
 end
 
 -- True if nothing but characters is between the NPC's eyes and `position`.
-local function clearLine(npc, position: Vector3): boolean
+local function clearLine(npc: NpcData, position: Vector3): boolean
 	local eyes = npc.Root.Position + Vector3.new(0, 1.5, 0)
 	local ignore = characters()
 	table.insert(ignore, npc.Model)
@@ -181,7 +253,7 @@ end
 
 -- Waits until the Humanoid reaches its MoveTo goal or `timeout` passes, without
 -- polling. Callers check npc._moveToken afterwards to see if the move was replaced.
-local function waitForMove(npc, timeout: number): boolean
+local function waitForMove(npc: NpcData, timeout: number): boolean
 	local thread = coroutine.running()
 	local done = false
 	local connection: RBXScriptConnection
@@ -198,13 +270,13 @@ local function waitForMove(npc, timeout: number): boolean
 	return coroutine.yield()
 end
 
-local function finishMove(npc, token: number)
+local function finishMove(npc: NpcData, token: number)
 	if npc._moveToken == token then
 		npc.Moving = false
 	end
 end
 
-local function followPath(npc, goal: Vector3, token: number)
+local function followPath(npc: NpcData, goal: Vector3, token: number)
 	local path = PathfindingService:CreatePath(npc._agent)
 	local ok = pcall(function()
 		path:ComputeAsync(npc.Root.Position, goal)
@@ -247,8 +319,8 @@ end
 
 -- Switches state, running the old state's Exit and the new one's Enter.
 -- Enter can return another state name to switch again straight away.
-local function enter(npc, name: string, depth: number?)
-	local brain = npc._brain
+local function enter(npc: NpcData, name: string, depth: number?)
+	local brain = npc._brain :: Brain
 	local state = brain.States[name]
 	if state == nil then
 		Errors.warnOnce(
@@ -272,14 +344,14 @@ local function enter(npc, name: string, depth: number?)
 	end
 end
 
-local function think(npc, deltaTime: number)
+local function think(npc: NpcData, deltaTime: number)
 	if npc._busy or npc.Dead then
 		return
 	end
 	npc._busy = true
 	-- Its own thread, so a brain that waits doesn't hold up the other NPCs.
 	task.spawn(function()
-		local brain = npc._brain
+		local brain = npc._brain :: Brain
 		local nextState = if brain.Always then safeCall(npc, brain.Always, deltaTime) else nil
 		if type(nextState) ~= "string" then
 			local state = brain.States[npc.State]
@@ -296,10 +368,11 @@ RunService.Heartbeat:Connect(function()
 	local now = os.clock()
 	-- A copy, since brains run inside this loop and may spawn or remove NPCs.
 	for _, npc in table.clone(active) do
-		if npc._brain and now >= npc._nextThink then
+		local brain = npc._brain
+		if brain and now >= npc._nextThink then
 			local deltaTime = now - npc._lastThink
 			npc._lastThink = now
-			npc._nextThink = now + npc._brain.TickRate
+			npc._nextThink = now + brain.TickRate
 			think(npc, deltaTime)
 		end
 	end
@@ -308,7 +381,7 @@ end)
 -- Builds a brain: a set of states, each with optional Enter, Update and Exit.
 -- Update runs a few times per second; return a state name from it to switch.
 -- Always (optional) runs before every Update and can also return a state.
-function NPC.Brain(definition: { [string]: any })
+function NPC.Brain(definition: { [string]: any }): Brain
 	Errors.expect(definition, "table", "the brain", "K.NPC.Brain")
 	Errors.checkOptions(definition, BRAIN_OPTIONS, "K.NPC.Brain")
 	if type(definition.States) ~= "table" or next(definition.States) == nil then
@@ -350,7 +423,7 @@ end
 
 -- Walks to a Vector3, part, model or player, using pathfinding when needed.
 -- Calling it again with a nearby goal (like a moving player) is cheap.
-function NpcMethods.MoveTo(npc, target: any)
+function NpcMethods.MoveTo(npc: NpcData, target: any)
 	local goal = positionOf(target)
 	if goal == nil then
 		Errors.raise(`npc:MoveTo() can't walk to {Errors.describe(target)}.`, {
@@ -388,17 +461,17 @@ function NpcMethods.MoveTo(npc, target: any)
 	task.spawn(followPath, npc, destination, npc._moveToken)
 end
 
-function NpcMethods.Stop(npc)
+function NpcMethods.Stop(npc: NpcData)
 	npc._moveToken += 1
 	npc.Moving = false
-	npc._goal = false
+	npc._goal = false :: any
 	if not npc.Dead then
 		npc.Humanoid:MoveTo(npc.Root.Position)
 	end
 end
 
 -- Walks to a random spot within `radius` studs of Home (if not already walking).
-function NpcMethods.Wander(npc, radius: number?)
+function NpcMethods.Wander(npc: NpcData, radius: number?)
 	local distance = radius or 15
 	Errors.expect(distance, "number", "the radius", "npc:Wander()")
 	if npc.Moving or npc.Dead then
@@ -410,7 +483,7 @@ function NpcMethods.Wander(npc, radius: number?)
 end
 
 -- Turns to look at a position, part, model or player (only around the vertical axis).
-function NpcMethods.Face(npc, target: any)
+function NpcMethods.Face(npc: NpcData, target: any)
 	local position = positionOf(target)
 	if position == nil or npc.Dead then
 		return
@@ -423,7 +496,7 @@ function NpcMethods.Face(npc, target: any)
 end
 
 -- Uses a K.Combat attack, facing `target` first if given. Returns the targets hit.
-function NpcMethods.Attack(npc, name: string, target: any?): { Instance }
+function NpcMethods.Attack(npc: NpcData, name: string, target: any?): { Instance }
 	Errors.expect(name, "string", "the attack name", "npc:Attack()")
 	if npc.Dead then
 		return {}
@@ -436,7 +509,7 @@ end
 
 -- The closest living, loaded player within `range` studs (and in sight, if `needsSight`).
 -- Returns the player and their distance, or nil.
-function NpcMethods.NearestPlayer(npc, range: number, needsSight: boolean?): (Player?, number?)
+function NpcMethods.NearestPlayer(npc: NpcData, range: number, needsSight: boolean?): (Player?, number?)
 	Errors.expect(range, "number", "the range", "npc:NearestPlayer()")
 	local best, bestDistance = nil, range
 	for _, player in PlayersModule.GetAll() do
@@ -452,18 +525,18 @@ function NpcMethods.NearestPlayer(npc, range: number, needsSight: boolean?): (Pl
 end
 
 -- True if nothing (other than characters) blocks the NPC's view of `target`.
-function NpcMethods.CanSee(npc, target: any): boolean
+function NpcMethods.CanSee(npc: NpcData, target: any): boolean
 	local position = positionOf(target)
 	return position ~= nil and clearLine(npc, position)
 end
 
 -- Studs to `target`, or math.huge if it has no position.
-function NpcMethods.DistanceTo(npc, target: any): number
+function NpcMethods.DistanceTo(npc: NpcData, target: any): number
 	local position = positionOf(target)
 	return if position then (position - npc.Root.Position).Magnitude else math.huge
 end
 
-function NpcMethods.SetState(npc, name: string)
+function NpcMethods.SetState(npc: NpcData, name: string)
 	Errors.expect(name, "string", "the state name", "npc:SetState()")
 	if not npc._brain then
 		Errors.raise("npc:SetState() needs the NPC to have a Brain.")
@@ -472,17 +545,17 @@ function NpcMethods.SetState(npc, name: string)
 end
 
 -- Seconds since the NPC entered its current state.
-function NpcMethods.StateTime(npc): number
+function NpcMethods.StateTime(npc: NpcData): number
 	return os.clock() - npc._stateStarted
 end
 
 -- Runs callback(npc, killer?) when this NPC dies.
-function NpcMethods.OnDeath(npc, callback: (any, Instance?) -> ())
+function NpcMethods.OnDeath(npc: NpcData, callback: (any, Instance?) -> ())
 	Errors.expect(callback, "function", "the callback", "npc:OnDeath()")
 	return npc._died:Connect(callback)
 end
 
-function NpcMethods.Destroy(npc)
+function NpcMethods.Destroy(npc: NpcData)
 	npc._moveToken += 1
 	active[npc.Model] = nil
 	npc.Dead = true
@@ -518,7 +591,7 @@ local function checkSpawnOptions(options: any, functionName: string)
 	checkReward(options and options.Reward, functionName)
 end
 
-local function onDeath(npc)
+local function onDeath(npc: NpcData)
 	if npc.Dead then
 		return
 	end
@@ -547,12 +620,13 @@ local function onDeath(npc)
 end
 
 -- Turns a Model with a Humanoid into an NPC.
-local function control(model: Model, options: { [string]: any }, functionName: string)
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	local root = humanoid and humanoid.RootPart
-	if humanoid == nil or root == nil then
+local function control(model: Model, options: { [string]: any }, functionName: string): NPC
+	local foundHumanoid = model:FindFirstChildOfClass("Humanoid")
+	local foundRoot = foundHumanoid and foundHumanoid.RootPart
+	if foundHumanoid == nil or foundRoot == nil then
 		Errors.raise(`{functionName}: {model:GetFullName()} needs a Humanoid and a HumanoidRootPart.`)
 	end
+	local humanoid, root = foundHumanoid :: Humanoid, foundRoot :: BasePart
 	if active[model] then
 		Errors.raise(`{functionName}: {model:GetFullName()} is already an NPC.`)
 	end
@@ -569,7 +643,7 @@ local function control(model: Model, options: { [string]: any }, functionName: s
 
 	local size = model:GetExtentsSize()
 	local now = os.clock()
-	local npc = Methods.build({
+	local npc: NpcData = {
 		Model = model,
 		Humanoid = humanoid,
 		Root = root,
@@ -579,13 +653,13 @@ local function control(model: Model, options: { [string]: any }, functionName: s
 		Memory = options.Memory or {},
 		Moving = false,
 		Dead = false,
-		_brain = options.Brain or false,
+		_brain = options.Brain or false :: any,
 		_reward = options.Reward or false,
 		_corpseTime = options.CorpseTime or DEFAULT_CORPSE_TIME,
 		_died = Signal.new(),
-		_killer = false,
+		_killer = false :: any,
 		_busy = false,
-		_goal = false,
+		_goal = false :: any,
 		_moveToken = 0,
 		_pathStarted = 0,
 		_stateStarted = now,
@@ -597,7 +671,8 @@ local function control(model: Model, options: { [string]: any }, functionName: s
 			AgentCanJump = true,
 			WaypointSpacing = 4,
 		},
-	}, NpcMethods, `NPC "{model.Name}"`)
+	}
+	Methods.build(npc, NpcMethods, `NPC "{model.Name}"`)
 
 	-- The server simulates NPCs, so players' devices can't move them.
 	if root:CanSetNetworkOwnership() then
@@ -623,10 +698,11 @@ local function control(model: Model, options: { [string]: any }, functionName: s
 		npc._moveToken += 1
 	end)
 	NPC.Spawned:Fire(npc)
-	if npc._brain then
-		enter(npc, npc._brain.Initial)
+	local brain = npc._brain
+	if brain then
+		enter(npc, brain.Initial)
 	end
-	return npc
+	return npc :: any
 end
 
 local function spawnPosition(at: any, functionName: string): CFrame
@@ -651,14 +727,14 @@ end
 ------------------------------------------------------------------------------
 
 -- Clones `template` (a Model with a Humanoid, e.g. in ServerStorage) at `at` and makes it an NPC.
-function NPC.Spawn(template: Model, at: any, options: { [string]: any }?)
+function NPC.Spawn(template: Model, at: any, options: { [string]: any }?): NPC
 	Errors.expect(template, "Model", "the NPC template", "K.NPC.Spawn")
 	if template:FindFirstChildOfClass("Humanoid") == nil then
 		Errors.raise(`K.NPC.Spawn: {template:GetFullName()} needs a Humanoid to be an NPC.`)
 	end
 	local cframe = spawnPosition(at, "K.NPC.Spawn")
 	checkSpawnOptions(options, "K.NPC.Spawn")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local model = template:Clone()
 	model:PivotTo(cframe)
 	model.Parent = settings.Parent or workspace
@@ -666,22 +742,22 @@ function NPC.Spawn(template: Model, at: any, options: { [string]: any }?)
 end
 
 -- Makes a Model already in the game (placed in Studio) an NPC.
-function NPC.Control(model: Model, options: { [string]: any }?)
+function NPC.Control(model: Model, options: { [string]: any }?): NPC
 	Errors.expect(model, "Model", "the NPC model", "K.NPC.Control")
 	checkSpawnOptions(options, "K.NPC.Control")
 	return control(model, options or {}, "K.NPC.Control")
 end
 
 -- The NPC for a model, or nil.
-function NPC.Get(model: Instance)
-	return active[model :: any]
+function NPC.Get(model: Instance): NPC?
+	return active[model :: any] :: any
 end
 
 -- Every living NPC.
-function NPC.All(): { any }
-	local list = {}
+function NPC.All(): { NPC }
+	local list: { NPC } = {}
 	for _, npc in active do
-		table.insert(list, npc)
+		table.insert(list, npc :: any)
 	end
 	return list
 end
@@ -709,7 +785,7 @@ local function spawnPoints(at: any): { any }
 	return if type(at) == "table" then at else { at }
 end
 
-function SpawnerMethods.Count(spawner): number
+function SpawnerMethods.Count(spawner: SpawnerData): number
 	local count = 0
 	for _, npc in spawner._npcs do
 		if not npc.Dead then
@@ -719,7 +795,7 @@ function SpawnerMethods.Count(spawner): number
 	return count
 end
 
-function SpawnerMethods.All(spawner): { any }
+function SpawnerMethods.All(spawner: SpawnerData): { any }
 	local list = {}
 	for _, npc in spawner._npcs do
 		if not npc.Dead then
@@ -730,7 +806,7 @@ function SpawnerMethods.All(spawner): { any }
 end
 
 -- Stops spawning. With destroyAll, also removes every NPC it spawned.
-function SpawnerMethods.Stop(spawner, destroyAll: boolean?)
+function SpawnerMethods.Stop(spawner: SpawnerData, destroyAll: boolean?)
 	spawner._running = false
 	if destroyAll then
 		for _, npc in spawner._npcs do
@@ -746,7 +822,7 @@ SpawnerMethods.Destroy = SpawnerMethods.Stop
 
 -- Keeps up to Max NPCs alive, spawning a replacement every `Every` seconds while below Max.
 -- Takes every K.NPC.Spawn option too (Brain, Reward, Stats...).
-function NPC.Spawner(template: Model, options: { [string]: any })
+function NPC.Spawner(template: Model, options: { [string]: any }): Spawner
 	Errors.expect(template, "Model", "the NPC template", "K.NPC.Spawner")
 	Errors.expect(options, "table", "the options", "K.NPC.Spawner")
 	Errors.checkOptions(options, SPAWNER_OPTIONS, "K.NPC.Spawner")
@@ -769,13 +845,14 @@ function NPC.Spawner(template: Model, options: { [string]: any })
 
 	local spawnOptions = table.clone(options)
 	spawnOptions.At, spawnOptions.Max, spawnOptions.Every = nil, nil, nil
-	local spawner = Methods.build({ _npcs = {}, _running = true }, SpawnerMethods, "This NPC spawner")
+	local spawner: SpawnerData = { _npcs = {}, _running = true }
+	Methods.build(spawner, SpawnerMethods, "This NPC spawner")
 
 	local function spawnOne()
 		local point = points[math.random(1, #points)]
 		local ok, npc = pcall(NPC.Spawn, template, spawnPosition(point, "K.NPC.Spawner"), spawnOptions)
 		if ok then
-			table.insert(spawner._npcs, npc)
+			table.insert(spawner._npcs, npc :: any)
 		else
 			Errors.warnOnce(`spawner:{template.Name}`, `K.NPC.Spawner couldn't spawn {template.Name}: {npc}`)
 		end
@@ -799,14 +876,14 @@ function NPC.Spawner(template: Model, options: { [string]: any })
 			end
 		end
 	end)
-	return spawner
+	return spawner :: any
 end
 
 ------------------------------------------------------------------------------
 -- Ready-made behaviors (plain brains, built with the same K.NPC.Brain)
 ------------------------------------------------------------------------------
 
-local function targetValid(npc, target: any, range: number): boolean
+local function targetValid(npc: NpcData, target: any, range: number): boolean
 	return target ~= nil
 		and typeof(target) == "Instance"
 		and target.Parent ~= nil
@@ -817,7 +894,7 @@ end
 -- Wanders near home, chases players it sees, attacks them, then walks back home.
 -- Options: Attack ("Punch"), SightRange (40), AttackRange (5), LoseRange (SightRange × 1.5),
 -- Wander (12 studs, 0 to stand still), NeedsSight (true).
-function NPC.Behaviors.Hostile(options: { [string]: any }?)
+function NPC.Behaviors.Hostile(options: { [string]: any }?): Brain
 	Errors.checkOptions(options, {
 		Attack = "string",
 		SightRange = "number",
@@ -826,7 +903,7 @@ function NPC.Behaviors.Hostile(options: { [string]: any }?)
 		Wander = "number",
 		NeedsSight = "boolean",
 	}, "K.NPC.Behaviors.Hostile")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local attack = settings.Attack or "Punch"
 	local sight = settings.SightRange or 40
 	local attackRange = settings.AttackRange or 5
@@ -834,7 +911,7 @@ function NPC.Behaviors.Hostile(options: { [string]: any }?)
 	local wander = settings.Wander or 12
 	local needsSight = settings.NeedsSight ~= false
 
-	local function spot(npc): string?
+	local function spot(npc: NpcData): string?
 		local player = NpcMethods.NearestPlayer(npc, sight, needsSight)
 		if player then
 			npc.Memory.Target = player
@@ -847,7 +924,7 @@ function NPC.Behaviors.Hostile(options: { [string]: any }?)
 		Initial = "Idle",
 		States = {
 			Idle = {
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					local spotted = spot(npc)
 					if spotted then
 						return spotted
@@ -859,7 +936,7 @@ function NPC.Behaviors.Hostile(options: { [string]: any }?)
 				end,
 			},
 			Chase = {
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					local target = npc.Memory.Target
 					if not targetValid(npc, target, loseRange) then
 						npc.Memory.Target = nil
@@ -873,10 +950,10 @@ function NPC.Behaviors.Hostile(options: { [string]: any }?)
 				end,
 			},
 			Attack = {
-				Enter = function(npc)
+				Enter = function(npc: NpcData)
 					NpcMethods.Stop(npc)
 				end,
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					local target = npc.Memory.Target
 					if not targetValid(npc, target, loseRange) then
 						npc.Memory.Target = nil
@@ -890,10 +967,10 @@ function NPC.Behaviors.Hostile(options: { [string]: any }?)
 				end,
 			},
 			Return = {
-				Enter = function(npc)
+				Enter = function(npc: NpcData)
 					NpcMethods.MoveTo(npc, npc.Home)
 				end,
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					local spotted = spot(npc)
 					if spotted then
 						return spotted
@@ -912,24 +989,24 @@ function NPC.Behaviors.Hostile(options: { [string]: any }?)
 end
 
 -- Strolls around home, pausing between walks. Options: Radius (15), Pause (3 seconds).
-function NPC.Behaviors.Wander(options: { [string]: any }?)
+function NPC.Behaviors.Wander(options: { [string]: any }?): Brain
 	Errors.checkOptions(options, { Radius = "number", Pause = "number" }, "K.NPC.Behaviors.Wander")
-	local settings = options or {}
+	local settings: { [string]: any } = options or {}
 	local radius = settings.Radius or 15
 	local pause = settings.Pause or 3
 	return NPC.Brain({
 		Initial = "Rest",
 		States = {
 			Rest = {
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					return if NpcMethods.StateTime(npc) >= pause then "Walk" else nil
 				end,
 			},
 			Walk = {
-				Enter = function(npc)
+				Enter = function(npc: NpcData)
 					NpcMethods.Wander(npc, radius)
 				end,
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					return if npc.Moving then nil else "Rest"
 				end,
 			},
@@ -938,7 +1015,7 @@ function NPC.Behaviors.Wander(options: { [string]: any }?)
 end
 
 -- Walks between points in order, forever. Options: Points (parts, models or Vector3s), Pause (1 second).
-function NPC.Behaviors.Patrol(options: { [string]: any })
+function NPC.Behaviors.Patrol(options: { [string]: any }): Brain
 	Errors.expect(options, "table", "the options", "K.NPC.Behaviors.Patrol")
 	Errors.checkOptions(options, { Points = "table|Instance", Pause = "number" }, "K.NPC.Behaviors.Patrol")
 	local points = spawnPoints(options.Points)
@@ -955,11 +1032,11 @@ function NPC.Behaviors.Patrol(options: { [string]: any })
 		Initial = "Walk",
 		States = {
 			Walk = {
-				Enter = function(npc)
+				Enter = function(npc: NpcData)
 					npc.Memory.PatrolIndex = npc.Memory.PatrolIndex or 1
 					NpcMethods.MoveTo(npc, points[npc.Memory.PatrolIndex])
 				end,
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					if npc.Moving then
 						return nil
 					end
@@ -968,7 +1045,7 @@ function NPC.Behaviors.Patrol(options: { [string]: any })
 				end,
 			},
 			Pause = {
-				Update = function(npc)
+				Update = function(npc: NpcData): string?
 					return if NpcMethods.StateTime(npc) >= pause then "Walk" else nil
 				end,
 			},
@@ -984,5 +1061,8 @@ Combat.Killed:Connect(function(victim, killer)
 end)
 
 Errors.strict(NPC.Behaviors, "K.NPC.Behaviors")
+
+-- The real module type, for init (the early return above is typed any).
+export type Module = typeof(NPC)
 
 return Errors.strict(NPC, "K.NPC")

@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Value
 	One value per player (XP, level, a title, a setting...) that saves, reaches
@@ -94,11 +95,42 @@ type Family = {
 	Label: string,
 	Section: string,
 	Prefix: string,
-	Pipelines: { [string]: any },
+	Pipelines: { [string]: Pipeline.Pipeline },
 	Overrides: { [string]: any },
-	Changed: any,
-	Handles: { [string]: any },
+	Changed: Signal.Signal,
+	Handles: { [string]: Handle },
 	Names: { string },
+}
+
+type Handle = {
+	Name: string,
+	Changed: Signal.Signal,
+	_family: Family,
+	-- Stored as false on clients, which only read the replicated value.
+	_settings: Settings,
+	_overrides: { [string]: (Context) -> boolean },
+	_fallback: any,
+	_hasFallback: boolean,
+}
+
+type Context = Pipeline.Context
+
+-- A value made with K.Value (or a currency). Set, Add, Take, Has and the hooks
+-- only work on the server; on clients, Get(player?) reads and OnChanged(new, old) listens.
+export type Value = {
+	Name: string,
+	Changed: Signal.Signal,
+	Get: (self: Value, player: Player?) -> any,
+	Set: (self: Value, player: Player, value: any, source: string?) -> (boolean, any, string?),
+	Add: (self: Value, player: Player, amount: number, source: string?) -> (boolean, any, string?),
+	Take: (self: Value, player: Player, amount: number, source: string?) -> (boolean, any, string?),
+	Has: (self: Value, player: Player, amount: number) -> boolean,
+	OnChanged: (self: Value, callback: (...any) -> ()) -> Signal.Connection,
+	Before: (self: Value, operation: string, callback: (Context) -> (), priority: number?) -> () -> (),
+	After: (self: Value, operation: string, callback: (Context) -> ()) -> () -> (),
+	Use: (self: Value, operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Middleware: (self: Value, operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (self: Value, operation: string, callback: (Context) -> boolean?) -> (),
 }
 
 local Value = {}
@@ -173,7 +205,7 @@ local function normalize(settings: Settings, value: any): any
 end
 
 -- Sends a value to the clients that should see it.
-local function publish(player: Player, handle, value: any)
+local function publish(player: Player, handle: Handle, value: any)
 	local replicate = handle._settings.Replicate
 	if replicate == true then
 		player:SetAttribute(handle._family.Prefix .. handle.Name, value)
@@ -182,13 +214,13 @@ local function publish(player: Player, handle, value: any)
 	end
 end
 
-local function read(player: Player, handle): any
+local function read(player: Player, handle: Handle): any
 	local store = storeFor(player, handle._family, handle._settings)
 	local value = store and store[handle.Name]
 	return if typeof(value) == handle._settings.Kind then value else handle._settings.Default
 end
 
-local function write(player: Player, handle, value: any)
+local function write(player: Player, handle: Handle, value: any)
 	local family: Family = handle._family
 	local store = storeFor(player, family, handle._settings)
 	if store == nil then
@@ -204,7 +236,7 @@ local function write(player: Player, handle, value: any)
 end
 
 -- Loads a value for a player who just became ready (or a value defined late).
-local function initialize(player: Player, handle)
+local function initialize(player: Player, handle: Handle)
 	local settings: Settings = handle._settings
 	local store = storeFor(player, handle._family, settings)
 	if store == nil then
@@ -226,7 +258,7 @@ end
 ------------------------------------------------------------------------------
 
 -- Middleware may have changed ctx.Amount, so the cores check it again.
-local function validAmount(ctx): boolean
+local function validAmount(ctx: Context): boolean
 	local amount = ctx.Amount
 	if type(amount) ~= "number" or not Guard.isFinite(amount) then
 		Errors.warn(`A hook set ctx.Amount to {Errors.describe(amount)}, so the change to {ctx.Name} was cancelled.`)
@@ -239,7 +271,7 @@ local function validAmount(ctx): boolean
 	return true
 end
 
-local CORES = {
+local CORES: { [string]: (Context) -> boolean } = {
 	Set = function(ctx)
 		if ctx.Definition.Kind == "number" and not validAmount(ctx) then
 			return false
@@ -288,7 +320,7 @@ local function newFamily(label: string, section: string, prefix: string): Family
 	return family
 end
 
-local function run(handle, operation: string, player: Player, amount: any, source: string?): (boolean, any, string?)
+local function run(handle: Handle, operation: string, player: Player, amount: any, source: string?): (boolean, any, string?)
 	local family: Family = handle._family
 	local settings: Settings = handle._settings
 	if storeFor(player, family, settings) == nil then
@@ -343,7 +375,7 @@ local function getOperation(operation: any, functionName: string): string
 	return operation
 end
 
-local function checkAmount(handle, amount: any, functionName: string)
+local function checkAmount(handle: Handle, amount: any, functionName: string)
 	if handle._settings.Kind ~= "number" then
 		Errors.raise(`{functionName}: {handle.Name} holds {handle._settings.Kind}, so it can only be Set.`)
 	end
@@ -357,45 +389,45 @@ end
 
 local ServerMethods = {}
 
-function ServerMethods.Get(handle, player: Player): any
+function ServerMethods.Get(handle: Handle, player: Player): any
 	checkPlayer(player, `{handle.Name}:Get()`)
 	return read(player, handle)
 end
 
 -- Returns (changed, newValue, reasonIfNot).
-function ServerMethods.Set(handle, player: Player, value: any, source: string?)
+function ServerMethods.Set(handle: Handle, player: Player, value: any, source: string?)
 	checkPlayer(player, `{handle.Name}:Set()`)
 	return run(handle, "Set", player, value, source)
 end
 
-function ServerMethods.Add(handle, player: Player, amount: number, source: string?)
+function ServerMethods.Add(handle: Handle, player: Player, amount: number, source: string?)
 	checkPlayer(player, `{handle.Name}:Add()`)
 	checkAmount(handle, amount, `{handle.Name}:Add()`)
 	return run(handle, "Add", player, amount, source)
 end
 
 -- Fails, changing nothing, when the result would go below Min.
-function ServerMethods.Take(handle, player: Player, amount: number, source: string?)
+function ServerMethods.Take(handle: Handle, player: Player, amount: number, source: string?)
 	checkPlayer(player, `{handle.Name}:Take()`)
 	checkAmount(handle, amount, `{handle.Name}:Take()`)
 	return run(handle, "Take", player, amount, source)
 end
 
 -- True when Take(player, amount) would work.
-function ServerMethods.Has(handle, player: Player, amount: number): boolean
+function ServerMethods.Has(handle: Handle, player: Player, amount: number): boolean
 	checkPlayer(player, `{handle.Name}:Has()`)
 	checkAmount(handle, amount, `{handle.Name}:Has()`)
 	return read(player, handle) - amount >= handle._settings.Min
 end
 
 -- callback(player, new, old) on every change.
-function ServerMethods.OnChanged(handle, callback: (Player, any, any) -> ())
+function ServerMethods.OnChanged(handle: Handle, callback: (Player, any, any) -> ())
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:OnChanged()`)
 	return handle.Changed:Connect(callback)
 end
 
 -- Runs before an operation on this value. Change ctx.Amount, or ctx:Cancel("reason").
-function ServerMethods.Before(handle, operation: string, callback: (any) -> (), priority: number?): () -> ()
+function ServerMethods.Before(handle: Handle, operation: string, callback: (any) -> (), priority: number?): () -> ()
 	getOperation(operation, `{handle.Name}:Before()`)
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:Before()`)
 	return handle._family.Pipelines[operation]:Before(function(ctx)
@@ -406,7 +438,7 @@ function ServerMethods.Before(handle, operation: string, callback: (any) -> (), 
 end
 
 -- Runs after an operation on this value succeeded; ctx.Old and ctx.New hold the values.
-function ServerMethods.After(handle, operation: string, callback: (any) -> ()): () -> ()
+function ServerMethods.After(handle: Handle, operation: string, callback: (any) -> ()): () -> ()
 	getOperation(operation, `{handle.Name}:After()`)
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:After()`)
 	return handle._family.Pipelines[operation]:After(function(ctx)
@@ -417,7 +449,7 @@ function ServerMethods.After(handle, operation: string, callback: (any) -> ()): 
 end
 
 -- Full middleware: callback(ctx, next). Call next() to continue, or don't to stop.
-function ServerMethods.Use(handle, operation: string, callback: (any, () -> ()) -> (), priority: number?): () -> ()
+function ServerMethods.Use(handle: Handle, operation: string, callback: (any, () -> ()) -> (), priority: number?): () -> ()
 	getOperation(operation, `{handle.Name}:Use()`)
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:Use()`)
 	return handle._family.Pipelines[operation]:Use(function(ctx, continue)
@@ -431,7 +463,7 @@ end
 
 -- Replaces what an operation does for this value. Call ctx:Commit(value) to apply,
 -- or return false to fail.
-function ServerMethods.Override(handle, operation: string, callback: (any) -> boolean?)
+function ServerMethods.Override(handle: Handle, operation: string, callback: (any) -> boolean?)
 	getOperation(operation, `{handle.Name}:Override()`)
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:Override()`)
 	handle._overrides[operation] = function(ctx)
@@ -447,11 +479,11 @@ local ClientMethods = {}
 local ownerValues: { [string]: any } = {}
 local ownerChanged = Signal.new()
 
-local function ownerKey(handle): string
+local function ownerKey(handle: Handle): string
 	return `{handle._family.Label}:{handle.Name}`
 end
 
-local function readAttribute(handle, player: Player): any
+local function readAttribute(handle: Handle, player: Player): any
 	if player == Players.LocalPlayer and ownerValues[ownerKey(handle)] ~= nil then
 		return ownerValues[ownerKey(handle)]
 	end
@@ -467,7 +499,7 @@ end
 
 -- Get() for yourself, or Get(otherPlayer). Until the server has sent it, the
 -- Default given on this client (nil without one).
-function ClientMethods.Get(handle, player: Player?): any
+function ClientMethods.Get(handle: Handle, player: Player?): any
 	local target = player or Players.LocalPlayer
 	checkPlayer(target, `{handle.Name}:Get()`)
 	local value = readAttribute(handle, target :: Player)
@@ -478,7 +510,7 @@ function ClientMethods.Get(handle, player: Player?): any
 end
 
 -- callback(new, old) whenever your own value changes.
-function ClientMethods.OnChanged(handle, callback: (any, any) -> ())
+function ClientMethods.OnChanged(handle: Handle, callback: (any, any) -> ())
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:OnChanged()`)
 	local player = Players.LocalPlayer
 	local attribute = handle._family.Prefix .. handle.Name
@@ -498,20 +530,19 @@ function ClientMethods.OnChanged(handle, callback: (any, any) -> ())
 			changed()
 		end
 	end)
-	return {
-		Connected = true,
-		Disconnect = function(self)
-			attributeConnection:Disconnect()
-			ownerConnection:Disconnect()
-			if type(self) == "table" then
-				self.Connected = false
-			end
-		end,
-	}
+	local connection = { Connected = true }
+	local function disconnect()
+		attributeConnection:Disconnect()
+		ownerConnection:Disconnect()
+		connection.Connected = false
+	end
+	connection.Disconnect = disconnect
+	connection.Destroy = disconnect
+	return connection :: any
 end
 
 for _, name in { "Set", "Add", "Take", "Has", "Before", "After", "Use", "Middleware", "Override" } do
-	ClientMethods[name] = function(handle)
+	ClientMethods[name] = function(handle: Handle)
 		requireServer(`{handle.Name}:{name}()`)
 	end
 end
@@ -528,7 +559,7 @@ end
 
 local function buildSettings(name: string, options: { [string]: any }?, functionName: string): Settings
 	Errors.checkOptions(options, OPTIONS, functionName)
-	local given = options or {}
+	local given: { [string]: any } = options or {}
 	local default = if given.Default == nil then 0 else given.Default
 	local kind = typeof(default)
 	if kind ~= "number" then
@@ -573,13 +604,12 @@ local function buildSettings(name: string, options: { [string]: any }?, function
 	return table.freeze(settings)
 end
 
-local function newHandle(family: Family, name: string, settings: Settings?)
-	local handle = {
+local function newHandle(family: Family, name: string, settings: Settings?): Handle
+	local handle: Handle = {
 		Name = name,
 		Changed = Signal.new(),
 		_family = family,
-		-- false on clients, which only read the replicated value.
-		_settings = settings or false,
+		_settings = settings or false :: any,
 		_overrides = {},
 		-- Clients: what Get returns until the server's value arrives.
 		_fallback = false,
@@ -589,7 +619,7 @@ local function newHandle(family: Family, name: string, settings: Settings?)
 end
 
 -- Server: creates a value in `family`. Client: a read-only handle.
-local function define(family: Family, name: string, options: { [string]: any }?, functionName: string)
+local function define(family: Family, name: string, options: { [string]: any }?, functionName: string): Handle
 	checkName(name, functionName)
 	if not IS_SERVER then
 		local existing = family.Handles[name]
@@ -618,7 +648,7 @@ local function define(family: Family, name: string, options: { [string]: any }?,
 	return handle
 end
 
-local function find(family: Family, name: any, functionName: string)
+local function find(family: Family, name: any, functionName: string): Handle
 	local handle = family.Handles[name]
 	if handle == nil then
 		if type(name) ~= "string" then
@@ -643,13 +673,13 @@ local valueFamily = newFamily("Value", "Values", "CorodeValue_")
 Value.Changed = valueFamily.Changed
 
 -- K.Value(name, options) is the same as K.Value.Define(name, options).
-function Value.Define(name: string, options: { [string]: any }?)
-	return define(valueFamily, name, options, "K.Value")
+function Value.Define(name: string, options: { [string]: any }?): Value
+	return define(valueFamily, name, options, "K.Value") :: any
 end
 
 -- An existing value by name (on clients, any name).
-function Value.Get(name: string)
-	return find(valueFamily, name, "K.Value.Get")
+function Value.Get(name: string): Value
+	return find(valueFamily, name, "K.Value.Get") :: any
 end
 
 function Value.Exists(name: string): boolean
@@ -660,21 +690,27 @@ function Value.Names(): { string }
 	return table.clone(valueFamily.Names)
 end
 
+-- For other Corode systems: a value's settings (server only).
+function Value._getSettings(name: string): Settings?
+	local handle = valueFamily.Handles[name]
+	return if handle then handle._settings else nil
+end
+
 -- For other Corode systems (like K.Currency): a separate group of values with
 -- shared hooks, its own save section and its own attribute prefix.
 function Value._newFamily(label: string, section: string, prefix: string): Family
 	return newFamily(label, section, prefix)
 end
 
-function Value._define(family: Family, name: string, options: { [string]: any }?, functionName: string)
-	return define(family, name, options, functionName)
+function Value._define(family: Family, name: string, options: { [string]: any }?, functionName: string): Value
+	return define(family, name, options, functionName) :: any
 end
 
-function Value._find(family: Family, name: any, functionName: string)
-	return find(family, name, functionName)
+function Value._find(family: Family, name: any, functionName: string): Value
+	return find(family, name, functionName) :: any
 end
 
-function Value._run(handle, operation: string, player: Player, amount: any, source: string?): (boolean, any, string?)
+function Value._run(handle: any, operation: string, player: Player, amount: any, source: string?): (boolean, any, string?)
 	return run(handle, operation, player, amount, source)
 end
 
@@ -710,8 +746,8 @@ local PUBLIC_NAMES = { "Define", "Get", "Exists", "Names", "Changed" }
 
 -- Like Errors.strict, but K.Value itself can also be called.
 return setmetatable(Value, {
-	__call = function(_, name: string, options: { [string]: any }?)
-		return define(valueFamily, name, options, "K.Value")
+	__call = function(_, name: string, options: { [string]: any }?): Value
+		return define(valueFamily, name, options, "K.Value") :: any
 	end,
 	__index = function(_, key)
 		Errors.raise(`K.Value has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {

@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Data
 	Saves player data automatically. Session locking makes sure only one server
@@ -114,6 +115,8 @@ local loading: { [Player]: boolean } = {}
 local releasing: { [string]: number } = {}
 local store: any = nil
 local hooks: Hooks? = nil
+-- True when Data was started on its own with K.Data.Start.
+local standalone = false
 
 local function deepCopy<T>(value: T): T
 	if type(value) ~= "table" then
@@ -207,7 +210,7 @@ local function migrate(record: { [string]: any }, list: { Migration }, userId: n
 	end
 	for _, migration in list do
 		if migration.Version > version then
-			local ok, problem = pcall(migration.Run, working, userId)
+			local ok, problem = pcall(migration.Run :: any, working, userId)
 			if not ok then
 				return false, `migration {migration.Version} errored: {problem}`
 			end
@@ -320,8 +323,8 @@ end
 -- is brand new, or nil and why.
 local function acquire(player: Player, key: string): (any, string?, boolean)
 	for _ = 1, LOCK_ATTEMPTS do
-		local claimed, isNew = nil, false
-		local ok = request(`Loading {player.Name}'s data`, "UpdateAsync", key, function(record)
+		local claimed: any, isNew = nil, false
+		local ok = request(`Loading {player.Name}'s data`, "UpdateAsync", key, function(record: any): any
 			isNew = type(record) ~= "table" or type(record.Data) ~= "table"
 			record = if type(record) == "table" then record else {}
 			local lock = record.Lock
@@ -359,7 +362,7 @@ end
 -- Gives this server's lock back without writing anything else, for records it
 -- decided not to use.
 local function unlock(key: string)
-	request("Releasing a save", "UpdateAsync", key, function(record)
+	request("Releasing a save", "UpdateAsync", key, function(record: any): any
 		local lock = type(record) == "table" and record.Lock
 		if type(lock) ~= "table" or lock.Session ~= SESSION_ID then
 			return nil
@@ -391,7 +394,7 @@ local function save(profile: Profile, release: boolean): boolean
 	end
 
 	local lost = false
-	local ok = request(`Saving {player.Name}'s data`, "UpdateAsync", profile.Key, function(record)
+	local ok = request(`Saving {player.Name}'s data`, "UpdateAsync", profile.Key, function(record: any): any
 		local lock = type(record) == "table" and record.Lock
 		if type(lock) ~= "table" or lock.Session ~= SESSION_ID then
 			-- Another server took over; writing now would overwrite newer data.
@@ -446,7 +449,7 @@ local function onPlayerAdded(player: Player)
 	while releasing[key] and os.clock() < deadline and player.Parent == Players do
 		task.wait(0.1)
 	end
-	local record, reason, isNew = nil, "locked", false
+	local record: any, reason: string?, isNew = nil, "locked", false
 	if not releasing[key] then
 		record, reason, isNew = acquire(player, key)
 	end
@@ -685,8 +688,26 @@ function Data._prepare(record: { [string]: any }, isNew: boolean, list: { Migrat
 	return prepare(record, isNew, list, userId)
 end
 
+-- Starts loading and saving players, for games that use Data without the rest
+-- of Corode: require(ReplicatedStorage.Corode.Data). With Corode itself, call
+-- K.Start() instead, which starts Data too.
+function Data.Start()
+	if hooks then
+		Errors.raise("K.Data is already started.", { "Call either K.Start() or K.Data.Start(), not both." })
+	end
+	standalone = true
+	Config.lock()
+	local function nothing() end
+	Data._start({ OnLoaded = nothing, OnLeaving = nothing, OnReleased = nothing })
+end
+
 function Data._start(startHooks: Hooks)
 	if hooks then
+		if standalone then
+			Errors.raise("K.Start() can't run after K.Data.Start().", {
+				"K.Start() starts Data itself, so remove the K.Data.Start() line.",
+			})
+		end
 		return
 	end
 	hooks = startHooks
@@ -701,5 +722,8 @@ function Data._start(startHooks: Hooks)
 		autoSave()
 	end)
 end
+
+-- The real module type, for init (the early return above is typed any).
+export type Module = typeof(Data)
 
 return Errors.strict(Data, "K.Data")

@@ -1,3 +1,4 @@
+--!strict
 --[[
 	When
 	Describe what should happen, in plain English.
@@ -97,6 +98,67 @@ local PROMPT_OPTIONS = {
 	Key = "EnumItem|string",
 }
 
+-- A When chain: an event followed by actions. Every action returns the chain,
+-- so they can be written one after another.
+export type Chain = {
+	Run: (self: Chain, callback: (Player?, ...any) -> boolean?) -> Chain,
+	Give: (self: Chain, name: string, amount: number?) -> Chain,
+	Take: (self: Chain, name: string, amount: number?, failMessage: string?) -> Chain,
+	Action: (self: Chain, name: string, ...any) -> Chain,
+	GiveItem: (self: Chain, item: string, amount: number?, inventory: any?) -> Chain,
+	TakeItem: (self: Chain, item: string, amount: number?, failMessage: string?, inventory: any?) -> Chain,
+	Damage: (self: Chain, amount: number) -> Chain,
+	Heal: (self: Chain, amount: number) -> Chain,
+	Buff: (self: Chain, stat: string, options: { [string]: any }) -> Chain,
+	StartQuest: (self: Chain, id: string) -> Chain,
+	ClaimQuest: (self: Chain, id: string) -> Chain,
+	QuestEvent: (self: Chain, name: string, amount: number?) -> Chain,
+	Reward: (self: Chain, bundle: { [string]: any }) -> Chain,
+	Prompt: (self: Chain, name: string) -> Chain,
+	RequireOwned: (self: Chain, name: string, failMessage: string?) -> Chain,
+	Step: (self: Chain, funnel: string, step: string) -> Chain,
+	Say: (self: Chain, text: string, options: { [string]: any }?) -> Chain,
+	Kill: (self: Chain) -> Chain,
+	Respawn: (self: Chain) -> Chain,
+	Teleport: (self: Chain, target: any) -> Chain,
+	Award: (self: Chain, badgeId: number) -> Chain,
+	Wait: (self: Chain, seconds: number) -> Chain,
+	Hide: (self: Chain, seconds: number?) -> Chain,
+	Show: (self: Chain) -> Chain,
+	Remove: (self: Chain) -> Chain,
+	Then: (self: Chain) -> Chain,
+	Once: (self: Chain) -> Chain,
+	OncePerPlayer: (self: Chain) -> Chain,
+	Stop: (self: Chain) -> (),
+	Disconnect: (self: Chain) -> (),
+	Destroy: (self: Chain) -> (),
+}
+
+-- What K.When(target) returns. Events work with both . and :, and take
+-- (options?, callback?): Touched, Clicked and Triggered for parts and models,
+-- Reaches(amount) and Changes() for currencies.
+export type Subject = {
+	Touched: (...any) -> Chain,
+	Clicked: (...any) -> Chain,
+	Triggered: (...any) -> Chain,
+	Reaches: (...any) -> Chain,
+	Changes: (...any) -> Chain,
+}
+
+type ChainData = {
+	-- Typed as optional, but stored as false: reading a missing member raises.
+	_subject: Instance?,
+	_steps: { (Player?, ...any) -> boolean? },
+	_trove: Trove.Trove,
+	_once: boolean,
+	_used: boolean,
+	_perPlayer: { [Player]: boolean }?,
+	_stopped: boolean,
+}
+
+type InstanceSubject = { _instance: Instance }
+type CurrencySubject = { _name: string }
+
 local When = {}
 local Chain = {}
 local InstanceEvents = {}
@@ -108,19 +170,20 @@ local build = Methods.build
 -- Chains
 ------------------------------------------------------------------------------
 
-local function newChain(subject: Instance?)
-	return build({
-		_subject = subject or false,
+local function newChain(subject: Instance?): ChainData
+	local chain: ChainData = {
+		_subject = subject or false :: any,
 		_steps = {},
 		_trove = Trove.new(),
 		_once = false,
 		_used = false,
-		_perPlayer = false,
+		_perPlayer = false :: any,
 		_stopped = false,
-	}, Chain, "This When chain")
+	}
+	return build(chain, Chain, "This When chain")
 end
 
-local function trigger(chain, player: Player?, ...: any)
+local function trigger(chain: ChainData, player: Player?, ...: any)
 	if chain._stopped then
 		return
 	end
@@ -130,11 +193,12 @@ local function trigger(chain, player: Player?, ...: any)
 		end
 		chain._used = true
 	end
-	if chain._perPlayer and player then
-		if chain._perPlayer[player] then
+	local perPlayer = chain._perPlayer
+	if perPlayer and player then
+		if perPlayer[player] then
 			return
 		end
-		chain._perPlayer[player] = true
+		perPlayer[player] = true
 	end
 	-- Deferred, so actions written on the same line as the event are in place before it runs.
 	task.defer(function(...)
@@ -146,16 +210,16 @@ local function trigger(chain, player: Player?, ...: any)
 	end, ...)
 end
 
-local function addStep(chain, step: (Player?, ...any) -> boolean?)
+local function addStep(chain: ChainData, step: (Player?, ...any) -> boolean?): Chain
 	table.insert(chain._steps, step)
-	return chain
+	return chain :: any
 end
 
-local function finish(chain, callback: ((...any) -> ())?)
+local function finish(chain: ChainData, callback: ((...any) -> ())?): Chain
 	if callback then
-		table.insert(chain._steps, callback)
+		table.insert(chain._steps, callback :: any)
 	end
-	return chain
+	return chain :: any
 end
 
 local function requireServer(action: string)
@@ -189,13 +253,14 @@ local function requireSeconds(seconds: any, action: string)
 	end
 end
 
-local function requireSubject(chain, action: string): Instance
-	if not chain._subject then
+local function requireSubject(chain: ChainData, action: string): Instance
+	local subject = chain._subject
+	if not subject then
 		Errors.raise(`:{action}() needs a part or model, so it can't be used here.`, {
 			`Use it after an event on a part, like K.When(workspace.Coin).Touched():{action}()`,
 		})
 	end
-	return chain._subject
+	return subject :: Instance
 end
 
 -- Replaces {player} with the player's display name.
@@ -209,14 +274,14 @@ local function fill(text: string, player: Player?): string
 end
 
 -- Runs your own function with the player. Return false from it to skip the actions after it.
-function Chain.Run(chain, callback: (Player?, ...any) -> boolean?)
+function Chain.Run(chain: ChainData, callback: (Player?, ...any) -> boolean?)
 	if type(callback) ~= "function" then
 		Errors.raise(`:Run() expected a function, but got {Errors.describe(callback)}.`)
 	end
 	return addStep(chain, callback)
 end
 
-function Chain.Give(chain, name: string, amount: number?)
+function Chain.Give(chain: ChainData, name: string, amount: number?)
 	requireServer("Give")
 	requireCurrency(name, "Give")
 	local value = if amount == nil then 1 else amount
@@ -227,7 +292,7 @@ function Chain.Give(chain, name: string, amount: number?)
 end
 
 -- Takes currency. If the player can't afford it, shows `failMessage` (if given) and stops.
-function Chain.Take(chain, name: string, amount: number?, failMessage: string?)
+function Chain.Take(chain: ChainData, name: string, amount: number?, failMessage: string?)
 	requireServer("Take")
 	requireCurrency(name, "Take")
 	local value = if amount == nil then 1 else amount
@@ -249,7 +314,7 @@ end
 
 -- Runs one of your K.Action actions for the player, with its hooks. If it fails,
 -- the player is told why and the chain stops.
-function Chain.Action(chain, name: string, ...: any)
+function Chain.Action(chain: ChainData, name: string, ...: any)
 	requireServer("Action")
 	local action = Action.Get(name)
 	local args = table.pack(...)
@@ -305,7 +370,7 @@ local function resolveInventory(inventory: any, action: string)
 end
 
 -- Gives an item. If it doesn't fit, tells the player and stops.
-function Chain.GiveItem(chain, item: string, amount: number?, inventory: any)
+function Chain.GiveItem(chain: ChainData, item: string, amount: number?, inventory: any)
 	requireServer("GiveItem")
 	requireItem(item, "GiveItem")
 	local value = requireWholeAmount(amount, "GiveItem")
@@ -323,7 +388,7 @@ function Chain.GiveItem(chain, item: string, amount: number?, inventory: any)
 end
 
 -- Takes an item. If the player doesn't have enough, shows `failMessage` (if given) and stops.
-function Chain.TakeItem(chain, item: string, amount: number?, failMessage: string?, inventory: any)
+function Chain.TakeItem(chain: ChainData, item: string, amount: number?, failMessage: string?, inventory: any)
 	requireServer("TakeItem")
 	requireItem(item, "TakeItem")
 	local value = requireWholeAmount(amount, "TakeItem")
@@ -344,7 +409,7 @@ function Chain.TakeItem(chain, item: string, amount: number?, failMessage: strin
 end
 
 -- Damages the player (through K.Combat, so hooks and Defense apply).
-function Chain.Damage(chain, amount: number)
+function Chain.Damage(chain: ChainData, amount: number)
 	requireServer("Damage")
 	requireAmount(amount, "Damage")
 	return addStep(chain, function(player)
@@ -352,7 +417,7 @@ function Chain.Damage(chain, amount: number)
 	end)
 end
 
-function Chain.Heal(chain, amount: number)
+function Chain.Heal(chain: ChainData, amount: number)
 	requireServer("Heal")
 	requireAmount(amount, "Heal")
 	return addStep(chain, function(player)
@@ -365,7 +430,7 @@ end
 
 -- Adds a stat modifier, e.g. :Buff("WalkSpeed", { Multiply = 2, Duration = 5 }).
 -- Without an Id, one Id per chain is used, so triggering again refreshes the buff.
-function Chain.Buff(chain, stat: string, options: { [string]: any })
+function Chain.Buff(chain: ChainData, stat: string, options: { [string]: any })
 	requireServer("Buff")
 	if not Stats.Exists(stat) then
 		Errors.raise(
@@ -387,7 +452,7 @@ function Chain.Buff(chain, stat: string, options: { [string]: any })
 end
 
 -- Starts a quest. If it can't start (already done, requirements...), the actions after it are skipped.
-function Chain.StartQuest(chain, id: string)
+function Chain.StartQuest(chain: ChainData, id: string)
 	requireServer("StartQuest")
 	Errors.expect(id, "string", "the quest id", ":StartQuest()")
 	return addStep(chain, function(player)
@@ -396,7 +461,7 @@ function Chain.StartQuest(chain, id: string)
 end
 
 -- Gives the rewards of a finished quest that has AutoClaim = false (like handing it in to an NPC).
-function Chain.ClaimQuest(chain, id: string)
+function Chain.ClaimQuest(chain: ChainData, id: string)
 	requireServer("ClaimQuest")
 	Errors.expect(id, "string", "the quest id", ":ClaimQuest()")
 	return addStep(chain, function(player)
@@ -405,7 +470,7 @@ function Chain.ClaimQuest(chain, id: string)
 end
 
 -- Moves "Event" quest objectives with this Event name forward.
-function Chain.QuestEvent(chain, name: string, amount: number?)
+function Chain.QuestEvent(chain: ChainData, name: string, amount: number?)
 	requireServer("QuestEvent")
 	Errors.expect(name, "string", "the event name", ":QuestEvent()")
 	return addStep(chain, function(player)
@@ -417,7 +482,7 @@ function Chain.QuestEvent(chain, name: string, amount: number?)
 end
 
 -- Gives a reward bundle, e.g. :Reward({ Coins = 100, Items = { Sword = 1 } }).
-function Chain.Reward(chain, bundle: { [string]: any })
+function Chain.Reward(chain: ChainData, bundle: { [string]: any })
 	requireServer("Reward")
 	Rewards.check(bundle, ":Reward()")
 	return addStep(chain, function(player)
@@ -442,7 +507,7 @@ local function requireShopItem(name: any, action: string)
 end
 
 -- Opens Roblox's purchase window for a pass, product, subscription or Premium.
-function Chain.Prompt(chain, name: string)
+function Chain.Prompt(chain: ChainData, name: string)
 	requireServer("Prompt")
 	requireShopItem(name, "Prompt")
 	return addStep(chain, function(player)
@@ -455,7 +520,7 @@ end
 
 -- Continues only for players who own the pass (or are subscribed / Premium / boosted).
 -- Everyone else gets the purchase window (when it can be bought) and the chain stops.
-function Chain.RequireOwned(chain, name: string, failMessage: string?)
+function Chain.RequireOwned(chain: ChainData, name: string, failMessage: string?)
 	requireServer("RequireOwned")
 	requireShopItem(name, "RequireOwned")
 	if failMessage ~= nil and type(failMessage) ~= "string" then
@@ -477,7 +542,7 @@ function Chain.RequireOwned(chain, name: string, failMessage: string?)
 end
 
 -- Logs an Analytics funnel step for the player.
-function Chain.Step(chain, funnel: string, step: string)
+function Chain.Step(chain: ChainData, funnel: string, step: string)
 	requireServer("Step")
 	Analytics.CheckStep(funnel, step)
 	return addStep(chain, function(player)
@@ -489,7 +554,7 @@ function Chain.Step(chain, funnel: string, step: string)
 end
 
 -- Shows a message. {player} in the text becomes the player's name.
-function Chain.Say(chain, text: string, options: { [string]: any }?)
+function Chain.Say(chain: ChainData, text: string, options: { [string]: any }?)
 	if type(text) ~= "string" and type(text) ~= "number" then
 		Errors.raise(`:Say() expected text, but got {Errors.describe(text)}.`)
 	end
@@ -507,7 +572,7 @@ function Chain.Say(chain, text: string, options: { [string]: any }?)
 	end)
 end
 
-function Chain.Kill(chain)
+function Chain.Kill(chain: ChainData): Chain
 	return addStep(chain, function(player)
 		if player then
 			PlayersModule.Kill(player)
@@ -516,7 +581,7 @@ function Chain.Kill(chain)
 	end)
 end
 
-function Chain.Respawn(chain)
+function Chain.Respawn(chain: ChainData): Chain
 	requireServer("Respawn")
 	return addStep(chain, function(player)
 		if player then
@@ -527,7 +592,7 @@ function Chain.Respawn(chain)
 end
 
 -- Moves the player to a Part, Model, Vector3 or CFrame.
-function Chain.Teleport(chain, target: any)
+function Chain.Teleport(chain: ChainData, target: any)
 	local kind = typeof(target)
 	local valid = kind == "Vector3"
 		or kind == "CFrame"
@@ -546,7 +611,7 @@ function Chain.Teleport(chain, target: any)
 end
 
 -- Awards a Roblox badge. Runs in the background, so it never holds up the chain.
-function Chain.Award(chain, badgeId: number)
+function Chain.Award(chain: ChainData, badgeId: number)
 	requireServer("Award")
 	if type(badgeId) ~= "number" or badgeId % 1 ~= 0 or badgeId <= 0 then
 		Errors.raise(`:Award() expected a badge id, but got {Errors.describe(badgeId)}.`)
@@ -559,7 +624,7 @@ function Chain.Award(chain, badgeId: number)
 	end)
 end
 
-function Chain.Wait(chain, seconds: number)
+function Chain.Wait(chain: ChainData, seconds: number)
 	requireSeconds(seconds, "Wait")
 	return addStep(chain, function()
 		task.wait(seconds)
@@ -568,7 +633,7 @@ function Chain.Wait(chain, seconds: number)
 end
 
 -- Hides the part (for everyone, when used on the server). With `seconds`, it comes back after that long.
-function Chain.Hide(chain, seconds: number?)
+function Chain.Hide(chain: ChainData, seconds: number?)
 	local subject = requireSubject(chain, "Hide")
 	if seconds ~= nil then
 		requireSeconds(seconds, "Hide")
@@ -586,7 +651,7 @@ function Chain.Hide(chain, seconds: number?)
 	end)
 end
 
-function Chain.Show(chain)
+function Chain.Show(chain: ChainData): Chain
 	local subject = requireSubject(chain, "Show")
 	return addStep(chain, function()
 		Motion.Show(subject)
@@ -595,7 +660,7 @@ function Chain.Show(chain)
 end
 
 -- Deletes the part or model.
-function Chain.Remove(chain)
+function Chain.Remove(chain: ChainData): Chain
 	local subject = requireSubject(chain, "Remove")
 	return addStep(chain, function()
 		subject:Destroy()
@@ -604,24 +669,24 @@ function Chain.Remove(chain)
 end
 
 -- Does nothing; it only makes chains read better.
-function Chain.Then(chain)
-	return chain
+function Chain.Then(chain: ChainData): Chain
+	return chain :: any
 end
 
 -- Only ever runs once, for the first player.
-function Chain.Once(chain)
+function Chain.Once(chain: ChainData): Chain
 	chain._once = true
-	return chain
+	return chain :: any
 end
 
 -- Runs once for each player.
-function Chain.OncePerPlayer(chain)
-	chain._perPlayer = setmetatable({}, { __mode = "k" })
-	return chain
+function Chain.OncePerPlayer(chain: ChainData): Chain
+	chain._perPlayer = setmetatable({}, { __mode = "k" }) :: any
+	return chain :: any
 end
 
 -- Stops listening for the event.
-function Chain.Stop(chain)
+function Chain.Stop(chain: ChainData)
 	chain._stopped = true
 	chain._trove:Clean()
 end
@@ -661,7 +726,7 @@ end
 
 local function toKeyCode(key: any): Enum.KeyCode
 	if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
-		return key
+		return key :: any
 	end
 	for _, item in Enum.KeyCode:GetEnumItems() do
 		if item.Name == key then
@@ -674,7 +739,7 @@ local function toKeyCode(key: any): Enum.KeyCode
 	return Enum.KeyCode.E
 end
 
-function InstanceEvents.Touched(subject, first: any, second: any)
+function InstanceEvents.Touched(subject: InstanceSubject, first: any, second: any): Chain
 	local options, callback = parseEvent("Touched", first, second, TOUCH_OPTIONS)
 	local target: Instance = subject._instance
 	local chain = newChain(target)
@@ -713,7 +778,7 @@ function InstanceEvents.Touched(subject, first: any, second: any)
 	return finish(chain, callback)
 end
 
-function InstanceEvents.Clicked(subject, first: any, second: any)
+function InstanceEvents.Clicked(subject: InstanceSubject, first: any, second: any): Chain
 	local options, callback = parseEvent("Clicked", first, second, CLICK_OPTIONS)
 	local target: Instance = subject._instance
 	local chain = newChain(target)
@@ -724,8 +789,9 @@ function InstanceEvents.Clicked(subject, first: any, second: any)
 		if not (target:IsA("BasePart") or target:IsA("Model")) then
 			Errors.raise(`:Clicked() needs a Part or Model, but got {Errors.describe(target)}.`)
 		end
-		detector = chain._trove:Add(Instance.new("ClickDetector"))
-		detector.Parent = target
+		local created = chain._trove:Add(Instance.new("ClickDetector"))
+		created.Parent = target
+		detector = created
 	end
 	local clickDetector = detector :: ClickDetector
 	if options.MaxDistance then
@@ -748,7 +814,7 @@ function InstanceEvents.Clicked(subject, first: any, second: any)
 	return finish(chain, callback)
 end
 
-function InstanceEvents.Triggered(subject, first: any, second: any)
+function InstanceEvents.Triggered(subject: InstanceSubject, first: any, second: any): Chain
 	local options, callback = parseEvent("Triggered", first, second, PROMPT_OPTIONS)
 	local target: Instance = subject._instance
 	local chain = newChain(target)
@@ -762,8 +828,9 @@ function InstanceEvents.Triggered(subject, first: any, second: any)
 		if holder == nil or not (holder:IsA("BasePart") or holder:IsA("Attachment")) then
 			Errors.raise(`:Triggered() needs a Part, Attachment or Model with parts, but got {Errors.describe(target)}.`)
 		end
-		prompt = chain._trove:Add(Instance.new("ProximityPrompt"))
-		prompt.Parent = holder
+		local created = chain._trove:Add(Instance.new("ProximityPrompt"))
+		created.Parent = holder
+		prompt = created
 	end
 	local proximityPrompt = prompt :: ProximityPrompt
 	if options.ActionText then
@@ -809,7 +876,7 @@ local function checkCallback(callback: any, eventName: string)
 end
 
 -- Runs when the currency goes from below `amount` to `amount` or more.
-function CurrencyEvents.Reaches(subject, amount: number, callback: ((Player) -> ())?)
+function CurrencyEvents.Reaches(subject: CurrencySubject, amount: number, callback: ((Player) -> ())?): Chain
 	if type(amount) ~= "number" or amount ~= amount then
 		Errors.raise(`:Reaches() expected an amount, but got {Errors.describe(amount)}.`)
 	end
@@ -832,7 +899,7 @@ function CurrencyEvents.Reaches(subject, amount: number, callback: ((Player) -> 
 end
 
 -- Runs on every change, with (player, new, old).
-function CurrencyEvents.Changes(subject, callback: ((Player, number, number) -> ())?)
+function CurrencyEvents.Changes(subject: CurrencySubject, callback: ((Player, number, number) -> ())?): Chain
 	checkCallback(callback, "Changes")
 	local chain = newChain(nil)
 	if IS_SERVER then
@@ -851,7 +918,7 @@ end
 -- Player events
 ------------------------------------------------------------------------------
 
-local function playerChain(callback: any, functionName: string, connect: (any) -> any)
+local function playerChain(callback: any, functionName: string, connect: (ChainData) -> any): Chain
 	if callback ~= nil and type(callback) ~= "function" then
 		Errors.raise(`{functionName} expected a function, but got {Errors.describe(callback)}.`)
 	end
@@ -861,8 +928,8 @@ local function playerChain(callback: any, functionName: string, connect: (any) -
 end
 
 -- On the server this runs after the player's data has loaded.
-function When.PlayerJoins(callback: ((Player) -> ())?)
-	local chain = playerChain(callback, "K.When.PlayerJoins", function(chain)
+function When.PlayerJoins(callback: ((Player) -> ())?): Chain
+	local chain = playerChain(callback, "K.When.PlayerJoins", function(chain: ChainData)
 		return PlayersModule.OnJoin(function(player)
 			trigger(chain, player)
 		end)
@@ -870,8 +937,8 @@ function When.PlayerJoins(callback: ((Player) -> ())?)
 	return chain
 end
 
-function When.PlayerLeaves(callback: ((Player) -> ())?)
-	local chain = playerChain(callback, "K.When.PlayerLeaves", function(chain)
+function When.PlayerLeaves(callback: ((Player) -> ())?): Chain
+	local chain = playerChain(callback, "K.When.PlayerLeaves", function(chain: ChainData)
 		return PlayersModule.OnLeave(function(player)
 			trigger(chain, player)
 		end)
@@ -879,8 +946,8 @@ function When.PlayerLeaves(callback: ((Player) -> ())?)
 	return chain
 end
 
-function When.CharacterSpawns(callback: ((Player, Model) -> ())?)
-	local chain = playerChain(callback, "K.When.CharacterSpawns", function(chain)
+function When.CharacterSpawns(callback: ((Player, Model) -> ())?): Chain
+	local chain = playerChain(callback, "K.When.CharacterSpawns", function(chain: ChainData)
 		return PlayersModule.OnCharacter(function(player, character)
 			trigger(chain, player, character)
 		end)
@@ -888,8 +955,8 @@ function When.CharacterSpawns(callback: ((Player, Model) -> ())?)
 	return chain
 end
 
-function When.PlayerDies(callback: ((Player, Model) -> ())?)
-	local chain = playerChain(callback, "K.When.PlayerDies", function(chain)
+function When.PlayerDies(callback: ((Player, Model) -> ())?): Chain
+	local chain = playerChain(callback, "K.When.PlayerDies", function(chain: ChainData)
 		return PlayersModule.OnDeath(function(player, character)
 			trigger(chain, player, character)
 		end)
@@ -901,20 +968,21 @@ end
 -- K.When(target)
 ------------------------------------------------------------------------------
 
-local function currencySubject(name: string)
+local function currencySubject(name: string): Subject
 	if IS_SERVER and not Currency.Exists(name) then
 		Errors.raise(
 			`K.When("{name}"): there's no currency called "{name}".`,
 			Errors.didYouMean(name, Currency.Names(), { `Define it first: K.Currency.Define("{name}")` })
 		)
 	end
-	return build({ _name = name }, CurrencyEvents, `K.When("{name}")`)
+	local subject: CurrencySubject = { _name = name }
+	return build(subject, CurrencyEvents, `K.When("{name}")`) :: any
 end
 
 -- Runs for a player who kills someone (a player or NPC) with Combat damage.
 -- The chain gets (player, victim).
-function When.PlayerKills(callback: ((Player, Instance) -> ())?)
-	local chain = playerChain(callback, "K.When.PlayerKills", function(chain)
+function When.PlayerKills(callback: ((Player, Instance) -> ())?): Chain
+	local chain = playerChain(callback, "K.When.PlayerKills", function(chain: ChainData)
 		return Combat.Killed:Connect(function(victim, killer)
 			if killer and killer:IsA("Player") then
 				trigger(chain, killer, victim)
@@ -925,11 +993,11 @@ function When.PlayerKills(callback: ((Player, Instance) -> ())?)
 end
 
 -- Runs when a player completes a quest (any quest, or only `id`).
-function When.QuestCompleted(id: any, callback: ((Player) -> ())?)
+function When.QuestCompleted(id: any, callback: ((Player) -> ())?): Chain
 	if type(id) == "function" then
 		id, callback = nil, id
 	end
-	local chain = playerChain(callback, "K.When.QuestCompleted", function(chain)
+	local chain = playerChain(callback, "K.When.QuestCompleted", function(chain: ChainData)
 		return Quests.Completed:Connect(function(player, completedId)
 			if id == nil or completedId == id then
 				trigger(chain, player, completedId)
@@ -948,9 +1016,9 @@ local function requireRoundsServer(functionName: string)
 end
 
 -- Runs for every player in a round when it starts (needs K.Rounds.Define).
-function When.RoundStarts(callback: ((Player) -> ())?)
+function When.RoundStarts(callback: ((Player) -> ())?): Chain
 	requireRoundsServer("K.When.RoundStarts")
-	local chain = playerChain(callback, "K.When.RoundStarts", function(chain)
+	local chain = playerChain(callback, "K.When.RoundStarts", function(chain: ChainData)
 		return Rounds.Started:Connect(function(round)
 			for _, player in round.Players do
 				if player.Parent == Players then
@@ -963,9 +1031,9 @@ function When.RoundStarts(callback: ((Player) -> ())?)
 end
 
 -- Runs for every player who played a round when it ends. The chain gets (player, result).
-function When.RoundEnds(callback: ((Player, any) -> ())?)
+function When.RoundEnds(callback: ((Player, any) -> ())?): Chain
 	requireRoundsServer("K.When.RoundEnds")
-	local chain = playerChain(callback, "K.When.RoundEnds", function(chain)
+	local chain = playerChain(callback, "K.When.RoundEnds", function(chain: ChainData)
 		return Rounds.Ended:Connect(function(round, result)
 			for _, player in round.Players do
 				if player.Parent == Players then
@@ -978,9 +1046,9 @@ function When.RoundEnds(callback: ((Player, any) -> ())?)
 end
 
 -- Runs for each winner of a round.
-function When.PlayerWinsRound(callback: ((Player) -> ())?)
+function When.PlayerWinsRound(callback: ((Player) -> ())?): Chain
 	requireRoundsServer("K.When.PlayerWinsRound")
-	local chain = playerChain(callback, "K.When.PlayerWinsRound", function(chain)
+	local chain = playerChain(callback, "K.When.PlayerWinsRound", function(chain: ChainData)
 		return Rounds.Ended:Connect(function(_, result)
 			for _, player in result.Winners do
 				trigger(chain, player)
@@ -1003,18 +1071,19 @@ local WHEN_NAMES = {
 }
 
 return setmetatable(When, {
-	__call = function(_, target: any)
+	__call = function(_, target: any): Subject
 		if type(target) == "string" then
 			local subject = currencySubject(target)
 			return subject
 		end
 		if typeof(target) == "Instance" then
-			return build({ _instance = target }, InstanceEvents, `K.When({target.Name})`)
+			local subject: InstanceSubject = { _instance = target }
+			return build(subject, InstanceEvents, `K.When({target.Name})`) :: any
 		end
 		Errors.raise(`K.When expected a part, a model or a currency name, but got {Errors.describe(target)}.`, {
 			"Check the path, e.g. workspace.Coin (names are case-sensitive).",
 		})
-		return nil
+		return nil :: any
 	end,
 	__index = function(_, key)
 		Errors.raise(

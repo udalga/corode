@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Badges
 	Awards Roblox badges safely (errors are caught, ownership is cached).
@@ -77,5 +78,8 @@ end
 function Badges._playerRemoved(player: Player)
 	owned[player] = nil
 end
+
+-- The real module type, for init (the early return above is typed any).
+export type Module = typeof(Badges)
 
 return Errors.strict(Badges, "K.Badges")

@@ -1,3 +1,4 @@
+--!strict
 --[[
 	AntiCheat
 	Server-side checks for the most common exploits. Off until you enable it.
@@ -203,7 +204,7 @@ local function check(player: Player, tracker: Tracker)
 	local moved = position - tracker.Last
 	local horizontal = Vector3.new(moved.X, 0, moved.Z).Magnitude
 	local allowedSpeed = humanoid.WalkSpeed * settings.SpeedTolerance + SPEED_SLACK
-	local detection, details = nil, nil
+	local detection: string?, details: { [string]: any }? = nil, nil
 	local wall = if settings.Noclip then passedThroughWall(player, tracker.Last, position) else nil
 
 	if settings.Teleport and horizontal > settings.TeleportDistance then
@@ -276,7 +277,7 @@ end
 -- Turns the checks on. Every option is optional; see the top of this file.
 function AntiCheat.Enable(options: { [string]: any }?)
 	Errors.checkOptions(options, OPTIONS, "K.AntiCheat.Enable")
-	for key, value in options or {} do
+	for key, value in (options or {}) :: { [string]: any } do
 		if type(value) == "number" and (not Guard.isFinite(value) or value < 0) then
 			Errors.raise(`K.AntiCheat.Enable: {key} must be a number of 0 or more.`)
 		end
@@ -317,7 +318,11 @@ end
 function AntiCheat.Exempt(player: Player, isExempt: boolean)
 	Errors.expect(player, "Player", "the player", "K.AntiCheat.Exempt")
 	Errors.expect(isExempt, "boolean", "true or false", "K.AntiCheat.Exempt")
-	exempt[player] = if isExempt then true else nil
+	if isExempt then
+		exempt[player] = true
+	else
+		exempt[player] = nil
+	end
 end
 
 -- Strikes the player has collected within StrikeWindow.
@@ -377,5 +382,8 @@ Players.PlayerRemoving:Connect(function(player)
 	strikes[player] = nil
 	earned[player] = nil
 end)
+
+-- The real module type, for init (the early return above is typed any).
+export type Module = typeof(AntiCheat)
 
 return Errors.strict(AntiCheat, "K.AntiCheat")

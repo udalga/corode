@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Trove
 	Collects things that need cleaning up and cleans them all at once.
@@ -11,20 +12,30 @@
 
 local Errors = require(script.Parent.Errors)
 
+export type Trove = {
+	Add: <T>(self: Trove, item: T) -> T,
+	Connect: (self: Trove, signal: RBXScriptSignal, callback: (...any) -> ()) -> RBXScriptConnection,
+	Clean: (self: Trove) -> (),
+	Destroy: (self: Trove) -> (),
+}
+
+type TroveData = { _items: { any } }
+
 local Trove = {}
 Trove.__index = Trove
 
-function Trove.new()
-	return setmetatable({ _items = {} }, Trove)
+function Trove.new(): Trove
+	local data: TroveData = { _items = {} }
+	return setmetatable(data, Trove) :: any
 end
 
-function Trove:Add<T>(item: T): T
+function Trove.Add<T>(self: TroveData, item: T): T
 	table.insert(self._items, item)
 	return item
 end
 
-function Trove:Connect(signal: RBXScriptSignal, callback: (...any) -> ()): RBXScriptConnection
-	return self:Add(signal:Connect(callback))
+function Trove.Connect(self: TroveData, signal: RBXScriptSignal, callback: (...any) -> ()): RBXScriptConnection
+	return Trove.Add(self, signal:Connect(callback))
 end
 
 -- Reads a method without erroring: Corode's own objects (like When chains) raise
@@ -58,11 +69,15 @@ local function cleanup(item: any)
 end
 
 -- Cleans every item, newest first. A failing item is reported and the rest still get cleaned.
-function Trove:Clean()
+function Trove.Clean(self: TroveData)
 	local items = self._items
 	self._items = {}
 	for index = #items, 1, -1 do
-		local ok, problem = pcall(cleanup, items[index])
+		local item = items[index]
+		local ok, problem = pcall(function(): nil
+			cleanup(item)
+			return nil
+		end)
 		if not ok then
 			Errors.warn(`Trove couldn't clean an item: {problem}`)
 		end

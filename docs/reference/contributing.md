@@ -16,7 +16,7 @@ Corode's source lives in this repository as `.luau` files, and the files are the
 
 ## Set up
 
-Install [Rokit](https://github.com/rojo-rbx/rokit), then run `rokit install` in the repository. That installs the Rojo version pinned in `rokit.toml`.
+Install [Rokit](https://github.com/rojo-rbx/rokit), then run `rokit install` in the repository. That installs the Rojo, luau-lsp and Wally versions pinned in `rokit.toml`.
 
 ## Getting changes into Studio
 
@@ -86,6 +86,16 @@ ROBLOX_API_KEY=... ROBLOX_UNIVERSE_ID=10773475257 ROBLOX_PLACE_ID=13217038624522
 - Define currencies and inventories with `Saved = false`, so tests never change saved player data.
 - Get a player with `Helpers.player(t)`. Tests that need one are skipped when nobody is in the game.
 
+## Types
+
+Every module starts with `--!strict`, and CI fails on any type error. Check locally with [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp) and Roblox's type definitions (`scripts/globalTypes.None.d.luau` in the luau-lsp repository, saved as `globalTypes.d.luau`):
+
+```sh
+sh scripts/typecheck.sh
+```
+
+Objects with methods follow one pattern: an exported type with the public fields and methods (for autocomplete), a private data type for the fields Corode reads, and methods that take the data type. Fields that may be empty are stored as `false`, since these objects raise when a missing member is read, and typed as optional.
+
 ## Build a model
 
 ```sh
@@ -96,7 +106,9 @@ Drag `Corode.rbxm` into ReplicatedStorage in any place to use Corode there.
 
 ## Releases
 
-Push a tag like `v0.11.0`. GitHub Actions builds `Corode.rbxm` and attaches it to a GitHub release. Bump `Version` in `src/Corode/init.luau` first so the two match.
+Push a tag like `v0.11.0`. GitHub Actions builds `Corode.rbxm` and attaches it to a GitHub release. Bump `Version` in `src/Corode/init.luau` and `version` in `wally.toml` first so they match the tag.
+
+To publish the Wally package, run `wally login` once, then `wally publish` from the repository.
 
 ## Documentation
 

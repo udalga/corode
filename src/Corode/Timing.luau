@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Timing
 	Waiting, repeating and cooldowns.

@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Corode
 	Roblox game code that reads like plain English, with every system fully
@@ -39,22 +40,22 @@ local Trove = require(script.Util.Trove)
 local Action = require(script.Action)
 local Admin = require(script.Admin)
 local Analytics = require(script.Analytics)
-local AntiCheat = require(script.AntiCheat)
-local Badges = require(script.Badges)
+local AntiCheatModule = require(script.AntiCheat)
+local BadgesModule = require(script.Badges)
 local Combat = require(script.Combat)
 local Config = require(script.Config)
 local Currency = require(script.Currency)
-local Data = require(script.Data)
+local DataModule = require(script.Data)
 local Global = require(script.Global)
 local Hooks = require(script.Hooks)
-local Input = require(script.Input)
+local InputModule = require(script.Input)
 local Inventory = require(script.Inventory)
 local Items = require(script.Items)
-local Leaderstats = require(script.Leaderstats)
+local LeaderstatsModule = require(script.Leaderstats)
 local Machine = require(script.Machine)
 local Motion = require(script.Motion)
 local Net = require(script.Net)
-local NPC = require(script.NPC)
+local NPCModule = require(script.NPC)
 local Notify = require(script.Notify)
 local Players = require(script.Players)
 local Quests = require(script.Quests)
@@ -67,15 +68,46 @@ local Tag = require(script.Tag)
 local Teams = require(script.Teams)
 local Timer = require(script.Timer)
 local Timing = require(script.Timing)
-local UI = require(script.UI)
+local UIModule = require(script.UI)
 local Value = require(script.Value)
 local When = require(script.When)
+
+-- Server-only and client-only modules return a stand-in on the other side, so
+-- their require is typed any; give them their real types for autocomplete.
+local AntiCheat: AntiCheatModule.Module = AntiCheatModule :: any
+local Badges: BadgesModule.Module = BadgesModule :: any
+local Data: DataModule.Module = DataModule :: any
+local Input: InputModule.Module = InputModule :: any
+local Leaderstats: LeaderstatsModule.Module = LeaderstatsModule :: any
+local NPC: NPCModule.Module = NPCModule :: any
+local UI: UIModule.Module = UIModule :: any
+
+-- Types for your own annotations, like local xp: Corode.Value = K.Value("XP").
+export type Value = Value.Value
+export type Timer = Timer.Timer
+export type Machine = Machine.Machine
+export type Shared = Shared.Shared
+export type Hooks = Hooks.Hooks
+export type Context = Hooks.Context
+export type Action = Action.Action
+export type Chain = When.Chain
+export type Inventory = Inventory.Inventory
+export type Stack = Inventory.Stack
+export type NPC = NPCModule.NPC
+export type Brain = NPCModule.Brain
+export type Round = Rounds.Round
+export type RoundResult = Rounds.Result
+export type InputAction = InputModule.Action
+export type State = UIModule.State
+export type Signal = Signal.Signal
+export type Connection = Signal.Connection
+export type Trove = Trove.Trove
 
 local IS_SERVER = RunService:IsServer()
 local START_REMINDER_DELAY = 10
 
 local Corode = {
-	Version = "0.12.0",
+	Version = "0.13.0",
 
 	Action = Action,
 	Admin = Admin,
