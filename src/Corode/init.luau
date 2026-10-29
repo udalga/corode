@@ -102,6 +102,7 @@ export type State = UIModule.State
 export type Signal = Signal.Signal
 export type Connection = Signal.Connection
 export type Trove = Trove.Trove
+export type Packet<T = any> = Net.Packet<T>
 
 -- What hooks get as ctx, per system.
 export type ValueContext<T = any> = Value.ValueContext<T>

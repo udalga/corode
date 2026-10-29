@@ -13,6 +13,7 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 - Corode exports its main types for your own annotations: `Corode.Value<T>`, `Corode.Machine`, `Corode.Chain`, `Corode.Inventory`, `Corode.NPC`, the ctx types and more.
 - A Wally package: `Corode = "udalga/corode@0.13.0"`.
 - `K.Net.Packet(name, schema, options?)`: typed data packed into bytes, with everything fired in one frame sent as one event. The server reads every packet a client sends against its schema and rate limit before your function runs. Types: U8 to U32, I8 to I32, F32, F64, Bool, String, Primitive, Vector3, Vector2, CFrame, Color3, Instance, Enum, Optional, Array, Map and tables of fields. Unreliable packets (`Reliable = false`) are split to fit Roblox's size limit.
+- `K.Packet<T>` types a packet's data, so `Fire` and `FireAll` check what you send.
 - `K.Data.Start()` starts Data on its own, for games that use only Data.
 - A Types and packages page, including which modules work without the rest of Corode.
 

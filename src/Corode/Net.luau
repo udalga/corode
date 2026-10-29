@@ -307,12 +307,18 @@ local NOTHING: Codec.Type = table.freeze({
 -- A packet from K.Net.Packet. On the server, Fire(player, data), FireAll(data) and
 -- FireExcept(player, data) send, and On(function(player, data) end) receives;
 -- on clients, Fire(data) sends and On(function(data) end) receives.
-export type Packet = {
+--
+-- T is the data's type, any unless you write it yourself:
+--   type Hit = { Position: Vector3, Damage: number, Critical: boolean }
+--   local HitPacket: K.Packet<Hit> = K.Net.Packet("Hit", { ... })
+-- Fire takes the player first only on the server; the same module runs on both
+-- sides, so a missing player is caught when the server runs it, not by types.
+export type Packet<T = any> = {
 	Name: string,
-	Fire: (self: Packet, ...any) -> (),
-	FireAll: (self: Packet, data: any) -> (),
-	FireExcept: (self: Packet, player: Player, data: any) -> (),
-	On: (self: Packet, callback: (...any) -> ()) -> Signal.Connection,
+	Fire: ((self: Packet<T>, player: Player, data: T) -> ()) & ((self: Packet<T>, data: T) -> ()),
+	FireAll: (self: Packet<T>, data: T) -> (),
+	FireExcept: (self: Packet<T>, player: Player, data: T) -> (),
+	On: (self: Packet<T>, callback: (...any) -> ()) -> Signal.Connection,
 }
 
 type PacketData = {
@@ -712,12 +718,13 @@ local function definePacket(name: string, schema: any, options: any): Packet
 	else
 		task.spawn(function()
 			local folder = ReplicatedStorage:WaitForChild(ROOT_NAME)
-			local id = folder:GetAttribute(PACKET_ATTRIBUTE .. name)
-			while type(id) ~= "number" do
-				folder:GetAttributeChangedSignal(PACKET_ATTRIBUTE .. name):Wait()
-				id = folder:GetAttribute(PACKET_ATTRIBUTE .. name)
+			-- Both the id and the schema must be here before they're compared.
+			local id, serverSchema = folder:GetAttribute(PACKET_ATTRIBUTE .. name), folder:GetAttribute(SCHEMA_ATTRIBUTE .. name)
+			while type(id) ~= "number" or type(serverSchema) ~= "string" do
+				folder.AttributeChanged:Wait()
+				id, serverSchema = folder:GetAttribute(PACKET_ATTRIBUTE .. name), folder:GetAttribute(SCHEMA_ATTRIBUTE .. name)
 			end
-			connectId(packet, id :: number, folder:GetAttribute(SCHEMA_ATTRIBUTE .. name))
+			connectId(packet, id :: number, serverSchema)
 		end)
 	end
 	return packet :: any

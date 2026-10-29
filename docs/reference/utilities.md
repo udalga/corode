@@ -76,7 +76,16 @@ Each packet adds 3 bytes on top of its data. In a test sending five damage numbe
 
 **What the server checks.** Every packet a client sends is read against its schema: a value of the wrong type, a list over its limit, text that isn't UTF-8 or a number that isn't finite drops the packet before your function runs. Each player is rate limited per packet (`RateLimit`, 20 per second by default), and refused packets fire `K.Net.Rejected` like events do. The server checks what it sends too: `Hit:Fire(player, { Damage = 300 })` with a `U8` raises an error that names the field.
 
-**Both sides must match.** Define each packet with the same fields on both sides (a shared ModuleScript does that); a client whose definition differs ignores the packet and says so in the Output. Packets that arrive before a client defines or listens to them wait until it does.
+**Both sides must match.** Define each packet with the same fields on both sides (a shared ModuleScript does that); a client whose definition differs ignores the packet and says so in the Output. Packets that arrive before a client defines or listens to them wait until it does (up to 64); like a RemoteEvent's, they go to the first function that listens, so listen in one place.
+
+**Typing the data.** A packet's data is typed `any` unless you write its type, and then `Fire` and `FireAll` check it:
+
+```lua
+type Hit = { Position: Vector3, Damage: number, Critical: boolean }
+local Hit: K.Packet<Hit> = K.Net.Packet("Hit", { ... })   -- K is require(...Corode)
+```
+
+`Fire` takes the player first only on the server. Since the same module runs on both sides, a server `Fire` without a player is caught when it runs, with an error that says so, not by the type checker.
 
 Corode's own damage numbers, knockback, client attacks and `Replicate = "Owner"` values are packets.
 
