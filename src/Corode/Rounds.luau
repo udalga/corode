@@ -811,7 +811,7 @@ function Rounds.TimeLeft(): number
 	end
 	local replicated = folder()
 	local endsAt = replicated and replicated:GetAttribute("EndsAt")
-	return if endsAt then math.max(0, endsAt - workspace:GetServerTimeNow()) else 0
+	return if type(endsAt) == "number" then math.max(0, endsAt - workspace:GetServerTimeNow()) else 0
 end
 
 -- The name of the current map, if the round has one.
@@ -842,7 +842,7 @@ function Rounds.OnStateChanged(callback: (string) -> ())
 		local replicated = ReplicatedStorage:WaitForChild(FOLDER_NAME)
 		if active then
 			connection = replicated:GetAttributeChangedSignal("State"):Connect(function()
-				callback(replicated:GetAttribute("State") or "Waiting")
+				callback((replicated:GetAttribute("State") or "Waiting") :: string)
 			end)
 		end
 	end)

@@ -127,12 +127,15 @@ return function(t)
 			local started = 0
 			local broken = part(workspace, tag)
 			local fine = part(workspace, tag)
-			table.insert(behaviors, K.Tag(tag, function(instance)
-				if instance == broken then
-					error("broken behavior (expected in tests)")
-				end
-				started += 1
-			end))
+			table.insert(
+				behaviors,
+				K.Tag(tag, function(instance)
+					if instance == broken then
+						error("broken behavior (expected in tests)")
+					end
+					started += 1
+				end)
+			)
 			settle()
 			expect(started).toBe(1)
 			expect(fine.Parent).toBe(workspace)
@@ -142,12 +145,15 @@ return function(t)
 			local tag = Helpers.unique("Tag")
 			local cleaned = false
 			local slow = part(workspace, tag)
-			table.insert(behaviors, K.Tag(tag, function()
-				task.wait(0.2)
-				return function()
-					cleaned = true
-				end
-			end))
+			table.insert(
+				behaviors,
+				K.Tag(tag, function()
+					task.wait(0.2)
+					return function()
+						cleaned = true
+					end
+				end)
+			)
 			settle()
 			slow:RemoveTag(tag)
 			task.wait(0.4)
@@ -171,11 +177,14 @@ return function(t)
 			local tag = Helpers.unique("Tag")
 			local disconnected = false
 			local tagged = part(workspace, tag)
-			table.insert(behaviors, K.Tag(tag, function(_, cleanup)
-				cleanup:Add(function()
-					disconnected = true
+			table.insert(
+				behaviors,
+				K.Tag(tag, function(_, cleanup)
+					cleanup:Add(function()
+						disconnected = true
+					end)
 				end)
-			end))
+			)
 			settle()
 			tagged:RemoveTag(tag)
 			settle()

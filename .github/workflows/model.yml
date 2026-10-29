@@ -12,6 +12,8 @@ permissions:
 env:
   ROJO_VERSION: 7.7.1
   LUAU_LSP_VERSION: 1.70.1
+  STYLUA_VERSION: 2.6.0
+  SELENE_VERSION: 0.32.0
 
 jobs:
   build:
@@ -59,6 +61,31 @@ jobs:
       - name: Type check
         run: DEFS="$RUNNER_TEMP/globalTypes.d.luau" TMPDIR="$RUNNER_TEMP" sh scripts/typecheck.sh
 
+  # StyLua keeps the formatting the same everywhere; selene catches common mistakes.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install StyLua and selene
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v$STYLUA_VERSION" -R JohnnyMorganz/StyLua -p stylua-linux-x86_64.zip -D "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/stylua-linux-x86_64.zip" -d "$RUNNER_TEMP/tools"
+          gh release download "$SELENE_VERSION" -R Kampfkarren/selene -p "selene-$SELENE_VERSION-linux.zip" -D "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/selene-$SELENE_VERSION-linux.zip" -d "$RUNNER_TEMP/tools"
+          chmod +x "$RUNNER_TEMP/tools/stylua" "$RUNNER_TEMP/tools/selene"
+          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
+
+      - name: Check formatting
+        run: stylua --check src tests
+
+      - name: Lint
+        run: |
+          selene generate-roblox-std
+          selene src tests
+
   # Runs the tests on Roblox servers through Open Cloud. Skipped until the
   # ROBLOX_API_KEY secret exists, and on pull requests from forks.
   test:
@@ -101,7 +128,7 @@ jobs:
           echo "::notice::Tests skipped. Add the ROBLOX_API_KEY secret to run them on Roblox."
 
   release:
-    needs: [build, typecheck, test]
+    needs: [build, typecheck, lint, test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

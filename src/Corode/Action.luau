@@ -62,14 +62,31 @@ local Action = {}
 -- ask the server from a LocalScript.
 export type Action = {
 	Name: string,
-	Before: (self: Action, callback: (Hooks.Context) -> (), priority: number?) -> () -> (),
-	After: (self: Action, callback: (Hooks.Context) -> ()) -> () -> (),
-	Use: (self: Action, callback: (Hooks.Context, () -> ()) -> (), priority: number?) -> () -> (),
-	Middleware: (self: Action, callback: (Hooks.Context, () -> ()) -> (), priority: number?) -> () -> (),
-	Override: (self: Action, callback: (Hooks.Context, ...any) -> any) -> (),
+	Before: (self: Action, callback: (Context) -> (), priority: number?) -> () -> (),
+	After: (self: Action, callback: (Context) -> ()) -> () -> (),
+	Use: (self: Action, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Middleware: (self: Action, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (self: Action, callback: (Context, ...any) -> any) -> (),
 	Run: (self: Action, player: Player, ...any) -> (boolean, any),
 	Call: (self: Action, ...any) -> (boolean, any),
 	Fire: (self: Action, ...any) -> (),
+}
+
+-- What an action's function and hooks get as ctx.
+export type Context = {
+	Player: Player,
+	Action: string,
+	-- The arguments the player sent; Args.n is how many.
+	Args: { n: number, [number]: any },
+	-- "Client" for K.Action.Call, "Server" for :Run.
+	Source: string,
+	-- What the action returned, in After hooks.
+	Result: any,
+	-- ctx:Cancel("reason") stops the operation.
+	Cancel: (...any) -> (),
+	Cancelled: boolean,
+	Reason: string?,
+	[string]: any,
 }
 
 type ActionData = {
@@ -87,7 +104,9 @@ local actionNames: { string } = {}
 
 local function checkName(name: any, functionName: string)
 	if type(name) ~= "string" or #name > MAX_NAME_LENGTH or string.match(name, NAME_PATTERN) == nil then
-		Errors.raise(`{functionName} expected an action name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`)
+		Errors.raise(
+			`{functionName} expected an action name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`
+		)
 	end
 end
 
@@ -298,8 +317,11 @@ return setmetatable(Action, {
 		return define(name, options, callback)
 	end,
 	__index = function(_, key)
-		Errors.raise(`K.Action has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
-			'Create an action with K.Action("Name", function(ctx) ... end).',
-		}))
+		Errors.raise(
+			`K.Action has no "{tostring(key)}".`,
+			Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
+				'Create an action with K.Action("Name", function(ctx) ... end).',
+			})
+		)
 	end,
 })

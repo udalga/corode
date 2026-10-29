@@ -16,7 +16,7 @@ Corode's source lives in this repository as `.luau` files, and the files are the
 
 ## Set up
 
-Install [Rokit](https://github.com/rojo-rbx/rokit), then run `rokit install` in the repository. That installs the Rojo, luau-lsp and Wally versions pinned in `rokit.toml`.
+Install [Rokit](https://github.com/rojo-rbx/rokit), then run `rokit install` in the repository. That installs the Rojo, luau-lsp, Wally, StyLua and selene versions pinned in `rokit.toml`.
 
 ## Getting changes into Studio
 
@@ -93,6 +93,8 @@ Every module starts with `--!strict`, and CI fails on any type error. Check loca
 ```sh
 sh scripts/typecheck.sh
 ```
+
+Format with `stylua src tests` and lint with `selene src tests` before pushing; CI checks both.
 
 Objects with methods follow one pattern: an exported type with the public fields and methods (for autocomplete), a private data type for the fields Corode reads, and methods that take the data type. Fields that may be empty are stored as `false`, since these objects raise when a missing member is read, and typed as optional.
 

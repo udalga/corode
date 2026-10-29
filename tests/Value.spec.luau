@@ -237,7 +237,7 @@ return function(t)
 			expect(player:GetAttribute("CorodeValue_" .. xp.Name)).toBe(7)
 		end)
 
-		it("sends Replicate = \"Owner\" values only to their player", function()
+		it('sends Replicate = "Owner" values only to their player', function()
 			local player = Helpers.player(t)
 			local private = value({ Replicate = "Owner" })
 			private:Set(player, 7)

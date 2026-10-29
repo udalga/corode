@@ -1,0 +1,5 @@
+std = "roblox"
+
+[rules]
+# K.UI builders take properties and children in one table on purpose.
+mixed_table = "allow"

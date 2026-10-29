@@ -120,7 +120,7 @@ local standalone = false
 
 local function deepCopy<T>(value: T): T
 	if type(value) ~= "table" then
-		return value
+		return value :: any
 	end
 	local copy = {}
 	for key, child in value :: any do
@@ -216,7 +216,8 @@ local function migrate(record: { [string]: any }, list: { Migration }, userId: n
 			end
 			for _, field in { "Data", table.unpack(SECTIONS) } do
 				if type(working[field]) ~= "table" then
-					return false, `migration {migration.Version} left save.{field} as {Errors.describe(working[field])}; it must stay a table`
+					return false,
+						`migration {migration.Version} left save.{field} as {Errors.describe(working[field])}; it must stay a table`
 				end
 			end
 			version = migration.Version
@@ -624,7 +625,7 @@ function Data.Migrate(version: number, run: ({ [string]: any }, number) -> ())
 		})
 	end
 	table.insert(migrations, { Version = version, Run = run })
-	table.sort(migrations, function(a, b)
+	table.sort(migrations, function(a: Migration, b: Migration)
 		return a.Version < b.Version
 	end)
 end

@@ -332,7 +332,7 @@ function Motion.Spin(target: PVInstance, degreesPerSecond: number?, axis: string
 	if direction == nil then
 		Errors.raise(`K.Spin expected the axis "X", "Y" or "Z", but got {Errors.describe(axis)}.`)
 	end
-	local connection
+	local connection: RBXScriptConnection
 	connection = RunService.Heartbeat:Connect(function(deltaTime)
 		if target.Parent == nil then
 			connection:Disconnect()

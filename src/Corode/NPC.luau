@@ -450,8 +450,12 @@ function NpcMethods.MoveTo(npc: NpcData, target: any)
 
 	-- Already following a path to about the same place: keep going.
 	local previous = npc._goal
-	if npc.Moving and previous and (destination - previous).Magnitude < REPATH_DISTANCE
-		and os.clock() - npc._pathStarted < REPATH_INTERVAL then
+	if
+		npc.Moving
+		and previous
+		and (destination - previous).Magnitude < REPATH_DISTANCE
+		and os.clock() - npc._pathStarted < REPATH_INTERVAL
+	then
 		return
 	end
 	npc._moveToken += 1
@@ -1056,7 +1060,7 @@ end
 Combat.Killed:Connect(function(victim, killer)
 	local npc = active[victim]
 	if npc then
-		npc._killer = killer or false
+		npc._killer = killer or false :: any
 	end
 end)
 

@@ -106,8 +106,7 @@ local function ownerOf(target: any): Instance?
 		return target
 	end
 	if target:IsA("Model") then
-		return Players:GetPlayerFromCharacter(target)
-			or (if target:FindFirstChildOfClass("Humanoid") then target else nil)
+		return Players:GetPlayerFromCharacter(target) or (if target:FindFirstChildOfClass("Humanoid") then target else nil)
 	end
 	return nil
 end
@@ -177,7 +176,10 @@ function compute(entity: Entity, name: string): number
 		if ok and type(result) == "number" and Guard.isFinite(result) then
 			base = result
 		else
-			Errors.warnOnce(`stat-formula:{name}`, `The Formula of stat "{name}" failed: {if ok then "it didn't return a number" else result}.`)
+			Errors.warnOnce(
+				`stat-formula:{name}`,
+				`The Formula of stat "{name}" failed: {if ok then "it didn't return a number" else result}.`
+			)
 			base = definition.Base
 		end
 	else
@@ -476,8 +478,12 @@ function Stats.AddModifier(target: Instance, name: string, options: { [string]: 
 		return id
 	end
 	add, multiply, duration = ctx.Add, ctx.Multiply, ctx.Duration
-	if not Guard.isFinite(add) or not Guard.isFinite(multiply) or multiply < 0
-		or (duration ~= nil and (not Guard.isFinite(duration) or duration <= 0)) then
+	if
+		not Guard.isFinite(add)
+		or not Guard.isFinite(multiply)
+		or multiply < 0
+		or (duration ~= nil and (not Guard.isFinite(duration) or duration <= 0))
+	then
 		Errors.warn(`A K.Stats "AddModifier" hook left Add, Multiply or Duration invalid, so the modifier wasn't added.`)
 		return id
 	end
@@ -560,12 +566,12 @@ function Stats.OnChanged(name: string, callback: (...any) -> ())
 	local player = Players.LocalPlayer
 	local attribute = ATTRIBUTE_PREFIX .. name
 	local last = player:GetAttribute(attribute) or 0
-	return player:GetAttributeChangedSignal(attribute):Connect(function()
+	return Signal.wrap(player:GetAttributeChangedSignal(attribute):Connect(function()
 		local new = player:GetAttribute(attribute) or 0
 		local old = last
 		last = new
 		callback(new, old)
-	end)
+	end))
 end
 
 function Stats._playerReady(player: Player)
@@ -616,7 +622,7 @@ end
 local computeChanges = {}
 for _, method in { "Before", "Use" } do
 	computeChanges[method] = function(_, callback, priority)
-		local remove = computeHooks[method](computeHooks, callback, priority)
+		local remove = (computeHooks :: any)[method](computeHooks, callback, priority)
 		Stats.Refresh()
 		return function()
 			remove()
@@ -633,7 +639,28 @@ function computeChanges.Override(_, callback)
 end
 
 -- K.Stats.Before("Compute" | "AddModifier" | "SetBase", function(ctx) ... end) and friends.
-local exposed = Hooks._expose("K.Stats", { Compute = computeChanges, AddModifier = addModifierHooks, SetBase = setBaseHooks })
+-- What K.Stats hooks get as ctx. Compute has Value (change it to change the
+-- stat), SetBase has Value and Old, and AddModifier has Id, Add, Multiply,
+-- Duration and Stack.
+export type Context = {
+	Owner: Instance,
+	Stat: string,
+	Value: number?,
+	Old: number?,
+	Id: string?,
+	Add: number?,
+	Multiply: number?,
+	Duration: number?,
+	Stack: boolean?,
+	-- ctx:Cancel("reason") stops the operation.
+	Cancel: (...any) -> (),
+	Cancelled: boolean,
+	Reason: string?,
+	[string]: any,
+}
+
+local exposed: Hooks.Exposed<Context> =
+	Hooks._expose("K.Stats", { Compute = computeChanges, AddModifier = addModifierHooks, SetBase = setBaseHooks }) :: any
 Stats.Before = exposed.Before
 Stats.After = exposed.After
 Stats.Use = exposed.Use

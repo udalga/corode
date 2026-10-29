@@ -142,7 +142,7 @@ local function show(text: string, duration: number, color: Color3?)
 			table.insert(labels, child)
 		end
 	end
-	table.sort(labels, function(a, b)
+	table.sort(labels, function(a: GuiObject, b: GuiObject)
 		return a.LayoutOrder < b.LayoutOrder
 	end)
 	for index = 1, #labels - MAX_VISIBLE do

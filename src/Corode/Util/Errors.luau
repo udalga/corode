@@ -166,9 +166,7 @@ function Errors.expect(value: any, expected: string, argument: string, functionN
 		return
 	end
 	local wanted = typeList(expected)
-	Errors.raise(
-		`{functionName} expected {argument} to be {article(wanted)} {wanted}, but got {Errors.describe(value)}.`
-	)
+	Errors.raise(`{functionName} expected {argument} to be {article(wanted)} {wanted}, but got {Errors.describe(value)}.`)
 end
 
 -- Checks an options table against { OptionName = "type" }, catching typos like { Cooldwon = 1 }.
@@ -194,9 +192,7 @@ function Errors.checkOptions(options: any, allowed: { [string]: string }, functi
 		end
 		if not matches(value, expected) then
 			local wanted = typeList(expected)
-			Errors.raise(
-				`{functionName} option "{key}" should be {article(wanted)} {wanted}, but got {Errors.describe(value)}.`
-			)
+			Errors.raise(`{functionName} option "{key}" should be {article(wanted)} {wanted}, but got {Errors.describe(value)}.`)
 		end
 	end
 end

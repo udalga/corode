@@ -7,7 +7,10 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 ### Added
 
 - Every module is `--!strict`, and the objects Corode returns have full types: values, timers, machines, shared values, hooks, actions, When chains, inventories, NPCs, input actions and UI states. Autocomplete lists their methods, and strict scripts catch typos.
-- Corode exports its main types for your own annotations: `Corode.Value`, `Corode.Machine`, `Corode.Chain`, `Corode.Inventory`, `Corode.NPC` and more.
+- Values and shared values are typed by their Default: `K.Value("XP", { Default = 0 })` is a `Value<number>`, so `XP:Get(player)` is a number. `K.Shared.Define` works the same.
+- Every system's hooks have a typed `ctx` (Currency, Value, Inventory, Combat, Quests, Rewards, Stats and actions), so autocomplete lists its fields.
+- When events are typed for both `K.When(part).Touched()` and `K.When(part):Touched()`, with their options.
+- Corode exports its main types for your own annotations: `Corode.Value<T>`, `Corode.Machine`, `Corode.Chain`, `Corode.Inventory`, `Corode.NPC`, the ctx types and more.
 - A Wally package: `Corode = "udalga/corode@0.13.0"`.
 - `K.Data.Start()` starts Data on its own, for games that use only Data.
 - A Types and packages page, including which modules work without the rest of Corode.
@@ -15,12 +18,13 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 ### Changed
 
 - `K.Rewards` and `K.Stats` get their Before, After, Use, Middleware and Override as real fields, so they're typed.
-- The client's `OnChanged` connections from values and `K.Rounds.OnStateChanged` have `Connected` and `Destroy`, like every other connection.
+- Every connection Corode returns has `Connected`, `Disconnect` and `Destroy`. On clients, `K.Currency.OnChanged` and `K.Stats.OnChanged` returned a Roblox connection without `Destroy`; values and `K.Rounds.OnStateChanged` returned one without `Destroy` or `Connected`.
 - Respawning uses `LoadCharacterAsync`, since `LoadCharacter` is deprecated.
 
 ### Project
 
-- CI type checks the source with luau-lsp on every push, and a release needs it to pass.
+- CI type checks the source with luau-lsp, checks formatting with StyLua and lints with selene on every push; a release needs all three to pass.
+- Fewer reports from Roblox's new type solver (beta): returns and options it read differently are now explicit.
 - Tests for modules required on their own.
 
 ## 0.12.0 (2026-10-29)

@@ -191,7 +191,11 @@ local function listen(topic: string)
 					goLocal(problem)
 					return
 				end
-				Errors.warnOnce(`global-subscribe:{topic}`, `Couldn't listen to the global topic "{topic}" yet; trying again.`, { tostring(problem) })
+				Errors.warnOnce(
+					`global-subscribe:{topic}`,
+					`Couldn't listen to the global topic "{topic}" yet; trying again.`,
+					{ tostring(problem) }
+				)
 				task.wait(delay)
 				delay = math.min(delay * 2, 60)
 			end
@@ -676,8 +680,10 @@ function Global.Leaderboard(name: string, options: { [string]: any })
 		Display = "BasePart",
 	}, "K.Global.Leaderboard")
 	local label = `K.Global.Leaderboard("{name}")`
-	local sources = (if options.Currency then 1 else 0) + (if options.Stat then 1 else 0)
-		+ (if options.Earned then 1 else 0) + (if options.Value then 1 else 0)
+	local sources = (if options.Currency then 1 else 0)
+		+ (if options.Stat then 1 else 0)
+		+ (if options.Earned then 1 else 0)
+		+ (if options.Value then 1 else 0)
 	if sources ~= 1 then
 		Errors.raise(`{label} needs exactly one of Currency, Stat, Earned or Value.`)
 	end
@@ -729,7 +735,7 @@ function Global.Leaderboard(name: string, options: { [string]: any })
 				if other.Earned == ctx.Currency then
 					local state = earnedState(ctx.Player, other)
 					if state then
-						state.Amount += ctx.New - ctx.Old
+						state.Amount += (ctx.New :: number) - ctx.Old
 					end
 				end
 			end
@@ -770,7 +776,10 @@ function Global.RefreshLeaderboard(name: string)
 	requireServer("K.Global.RefreshLeaderboard")
 	local board = boards[name]
 	if board == nil then
-		Errors.raise(`K.Global.RefreshLeaderboard: there's no leaderboard called {Errors.quote(name)}.`, Errors.didYouMean(tostring(name), boardNames))
+		Errors.raise(
+			`K.Global.RefreshLeaderboard: there's no leaderboard called {Errors.quote(name)}.`,
+			Errors.didYouMean(tostring(name), boardNames)
+		)
 	end
 	runBoard(board :: Board)
 end

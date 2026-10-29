@@ -108,12 +108,12 @@ end
 
 -- Before, After, Use, Middleware and Override that take the operation first,
 -- like K.Rewards.Before("Give", fn).
-export type Exposed = {
-	Before: (operation: string, callback: (Context) -> (), priority: number?) -> () -> (),
-	After: (operation: string, callback: (Context) -> ()) -> () -> (),
-	Use: (operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
-	Middleware: (operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
-	Override: (operation: string, callback: (Context) -> boolean?) -> (),
+export type Exposed<C = Context> = {
+	Before: (operation: string, callback: (C) -> (), priority: number?) -> () -> (),
+	After: (operation: string, callback: (C) -> ()) -> () -> (),
+	Use: (operation: string, callback: (C, () -> ()) -> (), priority: number?) -> () -> (),
+	Middleware: (operation: string, callback: (C, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (operation: string, callback: (C) -> boolean?) -> (),
 }
 
 -- For Corode's systems: the Exposed functions for a set of K.Hooks, one per operation.

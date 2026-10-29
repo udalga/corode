@@ -41,8 +41,14 @@ local NAME_PATTERN = "^%a[%w_ ]*$"
 local MAX_NAME_LENGTH = 30
 -- Used when a team is defined without a Color.
 local DEFAULT_COLORS = {
-	"Bright red", "Bright blue", "Bright green", "Bright yellow",
-	"Bright orange", "Bright violet", "Cyan", "Hot pink",
+	"Bright red",
+	"Bright blue",
+	"Bright green",
+	"Bright yellow",
+	"Bright orange",
+	"Bright violet",
+	"Cyan",
+	"Hot pink",
 }
 
 local Teams = {}
@@ -121,7 +127,7 @@ function Teams.Define(name: string, options: { Color: any?, AutoAssign: boolean?
 		Errors.raise(`Team "{name}" is defined twice.`)
 	end
 	Errors.checkOptions(options, { Color = "Color3|BrickColor", AutoAssign = "boolean" }, "K.Teams.Define")
-	local settings: { [string]: any } = options or {}
+	local settings: { [string]: any } = (options or {}) :: any
 
 	local used = {}
 	for _, team in TeamsService:GetChildren() do
@@ -141,7 +147,7 @@ function Teams.Define(name: string, options: { Color: any?, AutoAssign: boolean?
 		end
 	else
 		for _, colorName in DEFAULT_COLORS do
-			local candidate = BrickColor.new(colorName :: any)
+			local candidate = (BrickColor.new :: any)(colorName)
 			if not used[candidate.Number] then
 				brickColor = candidate
 				break

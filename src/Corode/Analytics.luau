@@ -369,7 +369,14 @@ local function assign(player: Player, experiment: Experiment): string
 	end
 	if not reported[experiment.Name] then
 		reported[experiment.Name] = true
-		send("LogCustomEvent", `{player.Name} is in {experiment.Name}/{group}`, player, "ExperimentGroup", 1, customFields({ experiment.Name, group }, ""))
+		send(
+			"LogCustomEvent",
+			`{player.Name} is in {experiment.Name}/{group}`,
+			player,
+			"ExperimentGroup",
+			1,
+			customFields({ experiment.Name, group }, "")
+		)
 	end
 	return group
 end
@@ -423,13 +430,16 @@ function Analytics.Group(...: any): string?
 	if not IS_SERVER then
 		local name = ...
 		Errors.expect(name, "string", "the experiment name", "K.Analytics.Group")
-		return Players.LocalPlayer:GetAttribute(GROUP_PREFIX .. name)
+		return Players.LocalPlayer:GetAttribute(GROUP_PREFIX .. name) :: string?
 	end
 	local player, name = ...
 	Errors.expect(player, "Player", "the player", "K.Analytics.Group")
 	local experiment = experiments[name]
 	if experiment == nil then
-		Errors.raise(`K.Analytics.Group: there's no experiment called {Errors.quote(name)}.`, Errors.didYouMean(tostring(name), experimentNames))
+		Errors.raise(
+			`K.Analytics.Group: there's no experiment called {Errors.quote(name)}.`,
+			Errors.didYouMean(tostring(name), experimentNames)
+		)
 	end
 	return assign(player, experiment)
 end

@@ -115,7 +115,12 @@ local function expect(actual: any)
 				local ok, problem = pcall(actual)
 				local message = tostring(problem)
 				local passed = not ok and (text == nil or string.find(message, text, 1, true) ~= nil)
-				check(passed, if ok then "an error, but nothing was thrown" else `an error containing {describeValue(text)}, got {describeValue(message)}`)
+				check(
+					passed,
+					if ok
+						then "an error, but nothing was thrown"
+						else `an error containing {describeValue(text)}, got {describeValue(message)}`
+				)
 			end,
 		}
 	end

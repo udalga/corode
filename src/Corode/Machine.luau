@@ -164,7 +164,10 @@ local function durationOf(machine: MachineData, definition: StateDefinition): nu
 	end
 	if type(duration) ~= "number" or not Guard.isFinite(duration) or duration < 0 then
 		if definition.Duration ~= nil and type(definition.Duration) == "function" then
-			Errors.warnOnce(`machine-duration:{machine.Name}:{machine._state}`, `K.Machine "{machine.Name}": the Duration of {machine._state} didn't give a number of seconds.`)
+			Errors.warnOnce(
+				`machine-duration:{machine.Name}:{machine._state}`,
+				`K.Machine "{machine.Name}": the Duration of {machine._state} didn't give a number of seconds.`
+			)
 		end
 		return nil
 	end
@@ -245,7 +248,7 @@ local function tick(machine: MachineData)
 end
 
 local function step()
-	local now = os.clock()
+	local clock = os.clock()
 	local index = 1
 	while index <= #scheduled do
 		local machine = scheduled[index]
@@ -255,10 +258,10 @@ local function step()
 			scheduled[#scheduled] = nil
 		else
 			-- _ticking skips a machine whose last tick is still waiting (a state that yields).
-			if now >= machine._nextTick and not machine._ticking then
+			if clock >= machine._nextTick and not machine._ticking then
 				machine._nextTick += machine._tickRate
-				if machine._nextTick < now then
-					machine._nextTick = now + machine._tickRate
+				if machine._nextTick < clock then
+					machine._nextTick = clock + machine._tickRate
 				end
 				machine._ticking = true
 				tick(machine)
@@ -377,7 +380,7 @@ local function buildStates(options: { [string]: any }, label: string)
 	if type(options.States) ~= "table" or next(options.States) == nil then
 		Errors.raise(`{label} needs States, like \{ Lobby = \{ ... \}, Playing = \{ ... \} \}.`)
 	end
-	local names = {}
+	local names: { string } = {}
 	for name, definition in options.States do
 		if type(name) ~= "string" or string.match(name, NAME_PATTERN) == nil then
 			Errors.raise(`{label}: state names use letters, numbers and _, but got {Errors.describe(name)}.`)
@@ -507,8 +510,11 @@ return setmetatable(Machine, {
 		return Machine.Define(name, options)
 	end,
 	__index = function(_, key)
-		Errors.raise(`K.Machine has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
-			'Create a machine with K.Machine("Game", { Initial = "Lobby", States = { ... } }).',
-		}))
+		Errors.raise(
+			`K.Machine has no "{tostring(key)}".`,
+			Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
+				'Create a machine with K.Machine("Game", { Initial = "Lobby", States = { ... } }).',
+			})
+		)
 	end,
 })

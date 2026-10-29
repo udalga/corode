@@ -77,10 +77,29 @@ export type Inventory = {
 	Get: (self: Inventory, player: Player?) -> { Stack },
 	Clear: (self: Inventory, player: Player) -> (),
 	OnChanged: (self: Inventory, callback: (...any) -> ()) -> Signal.Connection,
-	Before: (self: Inventory, operation: string, callback: (Pipeline.Context) -> (), priority: number?) -> () -> (),
-	After: (self: Inventory, operation: string, callback: (Pipeline.Context) -> ()) -> () -> (),
-	Middleware: (self: Inventory, operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?) -> () -> (),
-	Override: (self: Inventory, operation: string, callback: (Pipeline.Context) -> boolean?) -> (),
+	Before: (self: Inventory, operation: string, callback: (Context) -> (), priority: number?) -> () -> (),
+	After: (self: Inventory, operation: string, callback: (Context) -> ()) -> () -> (),
+	Middleware: (self: Inventory, operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (self: Inventory, operation: string, callback: (Context) -> boolean?) -> (),
+}
+
+-- What inventory hooks get as ctx. Add and Remove have Item and Amount, Use has
+-- Slot, and Move has From and To; Item is filled in for slot operations too.
+export type Context = {
+	Player: Player,
+	Inventory: string,
+	Item: string?,
+	Amount: number?,
+	Data: { [string]: any }?,
+	Slot: number?,
+	From: number?,
+	To: number?,
+	Source: string?,
+	-- ctx:Cancel("reason") stops the operation.
+	Cancel: (...any) -> (),
+	Cancelled: boolean,
+	Reason: string?,
+	[string]: any,
 }
 
 type InventoryData = {
@@ -110,7 +129,7 @@ local inUse: { [Stack]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 local function deepCopy<T>(value: T): T
 	if type(value) ~= "table" then
-		return value
+		return value :: any
 	end
 	local copy = {}
 	for key, child in value :: any do
@@ -441,7 +460,14 @@ end
 -- Server inventory methods (Backpack:Add(...) etc.)
 ------------------------------------------------------------------------------
 
-function ServerMethods.Add(inventory: InventoryData, player: Player, item: string, amount: number?, data: { [string]: any }?, source: string?)
+function ServerMethods.Add(
+	inventory: InventoryData,
+	player: Player,
+	item: string,
+	amount: number?,
+	data: { [string]: any }?,
+	source: string?
+)
 	checkPlayer(player, ":Add()")
 	checkItem(item, ":Add()")
 	local value = checkAmount(amount, ":Add()")
@@ -534,24 +560,24 @@ function ServerMethods.OnChanged(inventory: InventoryData, callback: (Player) ->
 end
 
 -- Hooks, like K.Currency's: change ctx fields or ctx:Cancel("reason").
-function ServerMethods.Before(inventory: InventoryData, operation: string, callback: (Pipeline.Context) -> (), priority: number?)
+function ServerMethods.Before(inventory: InventoryData, operation: string, callback: (Context) -> (), priority: number?)
 	Errors.expect(callback, "function", "the callback", ":Before()")
 	return getPipeline(inventory, operation, ":Before()"):Before(callback, priority)
 end
 
-function ServerMethods.After(inventory: InventoryData, operation: string, callback: (Pipeline.Context) -> ())
+function ServerMethods.After(inventory: InventoryData, operation: string, callback: (Context) -> ())
 	Errors.expect(callback, "function", "the callback", ":After()")
 	return getPipeline(inventory, operation, ":After()"):After(callback)
 end
 
 -- Full middleware: callback(ctx, next). Call next() to continue.
-function ServerMethods.Middleware(inventory: InventoryData, operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?)
+function ServerMethods.Middleware(inventory: InventoryData, operation: string, callback: (Context, () -> ()) -> (), priority: number?)
 	Errors.expect(callback, "function", "the callback", ":Middleware()")
 	return getPipeline(inventory, operation, ":Middleware()"):Use(callback, priority)
 end
 
 -- Replaces an operation's core (advanced). Return false to fail.
-function ServerMethods.Override(inventory: InventoryData, operation: string, callback: (Pipeline.Context) -> boolean?)
+function ServerMethods.Override(inventory: InventoryData, operation: string, callback: (Context) -> boolean?)
 	Errors.expect(callback, "function", "the callback", ":Override()")
 	getPipeline(inventory, operation, ":Override()"):Override(callback)
 end
@@ -617,7 +643,10 @@ end
 -- Server: creates an inventory every player gets their own copy of.
 -- Options: Slots (max stacks, default 500), Saved (true),
 -- ClientCanUse / ClientCanMove (false): let players use or rearrange items from a LocalScript.
-function Inventory.Create(name: string, options: { Slots: number?, Saved: boolean?, ClientCanUse: boolean?, ClientCanMove: boolean? }?): Inventory
+function Inventory.Create(
+	name: string,
+	options: { Slots: number?, Saved: boolean?, ClientCanUse: boolean?, ClientCanMove: boolean? }?
+): Inventory
 	if not IS_SERVER then
 		Errors.raise("K.Inventory.Create only works in a server Script.", {
 			'On the client, use K.Inventory.Get("Name") to read it.',
@@ -632,7 +661,7 @@ function Inventory.Create(name: string, options: { Slots: number?, Saved: boolea
 		Errors.raise(`Inventory "{name}" is created twice.`, { `Use K.Inventory.Get("{name}") to reach it from other scripts.` })
 	end
 	Errors.checkOptions(options, CREATE_OPTIONS, "K.Inventory.Create")
-	local settings: { [string]: any } = options or {}
+	local settings: { [string]: any } = (options or {}) :: any
 	local slots = settings.Slots or MAX_SLOTS
 	if not isWhole(slots, 1, MAX_SLOTS) then
 		Errors.raise(`K.Inventory.Create("{name}"): Slots must be a whole number from 1 to {MAX_SLOTS}.`)
@@ -743,7 +772,13 @@ function Inventory.Transfer(player: Player, from: any, to: any, slot: number, am
 		-- Put the items back exactly where they were.
 		local current = stacks :: { Stack }
 		local remaining = current[slot]
-		if remaining and remaining.Id == original.Id and remaining.Data == nil and original.Data == nil and remaining.Amount + value == original.Amount then
+		if
+			remaining
+			and remaining.Id == original.Id
+			and remaining.Data == nil
+			and original.Data == nil
+			and remaining.Amount + value == original.Amount
+		then
 			remaining.Amount = original.Amount
 		else
 			original.Amount = value
@@ -752,7 +787,7 @@ function Inventory.Transfer(player: Player, from: any, to: any, slot: number, am
 		changed(player, source)
 		return false, addReason
 	end
-	return true
+	return true, nil
 end
 
 function Inventory._playerReady(player: Player)

@@ -57,7 +57,7 @@ local function checkText(text: string, maxLength: number): (boolean, string?)
 	if length > maxLength then
 		return false, `text is longer than {maxLength} characters`
 	end
-	return true
+	return true, nil
 end
 
 local function numberValidator(min: number, max: number, integer: boolean): Validator
@@ -73,7 +73,7 @@ local function numberValidator(min: number, max: number, integer: boolean): Vali
 		elseif value > max then
 			return false, `number is above {max}`
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -112,7 +112,7 @@ local function safe(value: any, depth: number): (boolean, string?)
 			end
 		end
 	end
-	return true
+	return true, nil
 end
 
 Guard.isFinite = isFinite
@@ -136,7 +136,7 @@ function Guard.String(options: { Min: number?, Max: number?, Pattern: string? }?
 		if pattern and string.match(value, pattern) == nil then
 			return false, "text has the wrong format"
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -155,7 +155,7 @@ function Guard.Boolean(): Validator
 		if type(value) ~= "boolean" then
 			return false, "expected true or false"
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -170,7 +170,7 @@ function Guard.Vector3(options: { MaxMagnitude: number? }?): Validator
 		elseif value.Magnitude > maxMagnitude then
 			return false, `vector is longer than {maxMagnitude}`
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -181,7 +181,7 @@ function Guard.CFrame(): Validator
 		elseif not finiteCFrame(value) then
 			return false, "CFrame must be finite"
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -196,7 +196,7 @@ function Guard.Instance(className: string?): Validator
 		elseif className and not value:IsA(className) then
 			return false, `expected a {className}`
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -206,7 +206,7 @@ function Guard.Player(): Validator
 		if typeof(value) ~= "Instance" or not value:IsA("Player") or value.Parent ~= Players then
 			return false, "expected a player in the game"
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -221,7 +221,7 @@ function Guard.OneOf(values: { any }): Validator
 		if value == nil or not allowed[value] then
 			return false, "value isn't one of the allowed options"
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -229,7 +229,7 @@ function Guard.Optional(validator: Validator): Validator
 	Errors.expect(validator, "function", "the validator", "K.Guard.Optional")
 	return function(value)
 		if value == nil then
-			return true
+			return true, nil
 		end
 		return validator(value)
 	end
@@ -242,7 +242,7 @@ function Guard.Any(): Validator
 	end
 end
 
-local SHORTHANDS: { [string]: () -> Validator } = {
+local SHORTHANDS: { [string]: (...any) -> Validator } = {
 	string = Guard.String,
 	number = Guard.Number,
 	integer = Guard.Integer,
@@ -278,9 +278,7 @@ function Guard.resolve(spec: any, functionName: string): Validator
 		local validator = factory()
 		return if optional then Guard.Optional(validator) else validator
 	end
-	Errors.raise(
-		`{functionName} expected a type name like "string" or a K.Guard check, but got {Errors.describe(spec)}.`
-	)
+	Errors.raise(`{functionName} expected a type name like "string" or a K.Guard check, but got {Errors.describe(spec)}.`)
 	return Guard.Any()
 end
 
@@ -312,7 +310,7 @@ function Guard.Array(item: any, options: { Max: number? }?): Validator
 				return false, `item {index}: {reason or "invalid"}`
 			end
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -338,7 +336,7 @@ function Guard.Shape(fields: { [string]: any }): Validator
 				return false, `{name}: {reason or "invalid"}`
 			end
 		end
-		return true
+		return true, nil
 	end
 end
 
@@ -372,7 +370,7 @@ function Guard.checkArguments(validators: { Validator }?, args: { n: number, [nu
 				return false, `argument {index}: {reason or "invalid"}`
 			end
 		end
-		return true
+		return true, nil
 	end
 	if args.n > SAFE_MAX_ARGUMENTS then
 		return false, "too many arguments"
@@ -383,7 +381,7 @@ function Guard.checkArguments(validators: { Validator }?, args: { n: number, [nu
 			return false, `argument {index}: {reason}`
 		end
 	end
-	return true
+	return true, nil
 end
 
 return Errors.strict(Guard, "K.Guard")

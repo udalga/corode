@@ -62,9 +62,7 @@ local clientRemotes: { [string]: Instance } = {}
 
 local function checkName(name: any, functionName: string)
 	if type(name) ~= "string" or name == "" or #name > MAX_NAME_LENGTH then
-		Errors.raise(
-			`{functionName} expected a name (text up to {MAX_NAME_LENGTH} characters), but got {Errors.describe(name)}.`
-		)
+		Errors.raise(`{functionName} expected a name (text up to {MAX_NAME_LENGTH} characters), but got {Errors.describe(name)}.`)
 	end
 end
 

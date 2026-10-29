@@ -12,8 +12,36 @@ local K = require(game.ReplicatedStorage.Corode)
 
 local XP = K.Value("XP", { Default = 0 })
 XP:Add(player, 10)        -- autocomplete shows Get, Set, Add, Take, Has, OnChanged and the hooks
-XP:Ad(player, 10)         -- a type error: Key 'Ad' not found in table 'Value'
+XP:Ad(player, 10)         -- a type error: Key 'Ad' not found in table 'Value<number>'
 ```
+
+Values and shared values take their type from the Default:
+
+```lua
+local XP = K.Value("XP", { Default = 0 })                 -- Value<number>
+local Title = K.Value("Title", { Default = "Newbie" })    -- Value<string>
+local level: number = XP:Get(player)
+
+local Weather = K.Shared.Define("Weather", "Sunny")       -- Shared<string>
+```
+
+`K.Shared("Weather", "Sunny")` works the same, but its value is typed `any`; use `K.Shared.Define` when you want the type. A value fetched by name with `K.Value.Get` is typed `any` too.
+
+Hooks know what their `ctx` holds, so `ctx.` lists the fields for that system:
+
+```lua
+K.Currency.Before("Add", function(ctx)    -- ctx: CurrencyContext
+	if ctx.Source == "Quest" then
+		ctx.Amount *= 2                       -- a number
+	end
+end)
+
+K.Combat.Before("Damage", function(ctx)   -- ctx: CombatContext
+	print(ctx.Target, ctx.Attacker, ctx.Amount)
+end)
+```
+
+Every `ctx` also has `Cancel`, `Cancelled` and `Reason`, and takes fields of your own.
 
 The main types are exported from Corode itself, for your own annotations:
 
@@ -26,7 +54,7 @@ local trove: Corode.Trove = Corode.Trove.new()
 
 | Type | What it is |
 | --- | --- |
-| `Value`, `Shared`, `Timer` | A per-player value, a shared value, a timer |
+| `Value<T>`, `Shared<T>`, `Timer` | A per-player value, a shared value, a timer |
 | `Machine`, `Hooks`, `Context`, `Action` | A state machine, a set of hooks, a hook's `ctx`, an action |
 | `Chain` | A `K.When` chain |
 | `Inventory`, `Stack` | An inventory and one stack in it |
@@ -34,8 +62,11 @@ local trove: Corode.Trove = Corode.Trove.new()
 | `Round`, `RoundResult` | The round being played and how it ended |
 | `InputAction`, `State` | A key binding and a UI state |
 | `Signal`, `Connection`, `Trove` | The utilities |
+| `ValueContext<T>`, `CurrencyContext`, `InventoryContext`, `CombatContext`, `QuestContext`, `RewardContext`, `StatContext`, `ActionContext` | What each system's hooks get as `ctx` |
 
-`ctx` in hooks is a table of any fields (`{ [string]: any }`), since every operation adds its own.
+`K.Hooks` you make yourself have a `ctx` of any fields, since you decide what goes in it.
+
+Corode is checked with Luau's current type solver. Roblox's new solver (in beta) still reports some of its own internal errors inside Corode's files; your scripts aren't affected.
 
 ## Installing with Wally
 

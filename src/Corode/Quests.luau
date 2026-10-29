@@ -76,7 +76,7 @@ local ID_PATTERN = "^%a[%w_]*$"
 local MAX_AMOUNT = 1e9
 local REPEAT_MODES = { "Never", "Daily", "Always" }
 local OPERATIONS = { "Start", "Complete" }
-local COMMON_FIELDS = { Type = "string", Amount = "number", Text = "string" }
+local COMMON_FIELDS: { [string]: string } = { Type = "string", Amount = "number", Text = "string" }
 local QUEST_OPTIONS = {
 	Name = "string",
 	Description = "string",
@@ -96,6 +96,18 @@ type ObjectiveType = {
 	Fields: { [string]: string },
 	Text: (any) -> string,
 	Track: (Player, any, (number) -> (), (number) -> ()) -> (() -> ())?,
+}
+
+-- What K.Quests hooks get as ctx.
+export type Context = {
+	Player: Player,
+	Quest: string,
+	Source: string,
+	-- ctx:Cancel("reason") stops the operation.
+	Cancel: (...any) -> (),
+	Cancelled: boolean,
+	Reason: string?,
+	[string]: any,
 }
 
 local Quests = {}
@@ -608,7 +620,7 @@ Quests.Objective("Earn", {
 			earnHooked = true
 			Currency.After("Add", function(ctx)
 				for _, listener: any in table.clone(earnListeners[ctx.Player] or {}) do
-					listener(ctx.Currency, ctx.New - ctx.Old)
+					listener(ctx.Currency, (ctx.New :: number) - ctx.Old)
 				end
 			end)
 		end
@@ -905,19 +917,19 @@ local function getPipeline(operation: any, functionName: string)
 	return pipeline
 end
 
-function Quests.Before(operation: string, callback: (Pipeline.Context) -> (), priority: number?): () -> ()
+function Quests.Before(operation: string, callback: (Context) -> (), priority: number?): () -> ()
 	requireServer("K.Quests.Before")
 	Errors.expect(callback, "function", "the callback", "K.Quests.Before")
 	return getPipeline(operation, "K.Quests.Before"):Before(callback, priority)
 end
 
-function Quests.After(operation: string, callback: (Pipeline.Context) -> ()): () -> ()
+function Quests.After(operation: string, callback: (Context) -> ()): () -> ()
 	requireServer("K.Quests.After")
 	Errors.expect(callback, "function", "the callback", "K.Quests.After")
 	return getPipeline(operation, "K.Quests.After"):After(callback)
 end
 
-function Quests.Middleware(operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?): () -> ()
+function Quests.Middleware(operation: string, callback: (Context, () -> ()) -> (), priority: number?): () -> ()
 	requireServer("K.Quests.Middleware")
 	Errors.expect(callback, "function", "the callback", "K.Quests.Middleware")
 	return getPipeline(operation, "K.Quests.Middleware"):Use(callback, priority)

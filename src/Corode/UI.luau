@@ -68,14 +68,59 @@ local LAYOUTS = { "Vertical", "Horizontal", "Grid" }
 local ALIGNMENTS = { Start = "Left", Center = "Center", End = "Right" }
 local VERTICAL_ALIGNMENTS = { Start = "Top", Center = "Center", End = "Bottom" }
 -- Props handled by Corode itself rather than set on the instance.
-local SHORTCUTS = { Children = true, Parent = true, Corner = true, Padding = true, Stroke = true, Layout = true, Gap = true, Align = true, CellSize = true }
+local SHORTCUTS = {
+	Children = true,
+	Parent = true,
+	Corner = true,
+	Padding = true,
+	Stroke = true,
+	Layout = true,
+	Gap = true,
+	Align = true,
+	CellSize = true,
+}
 -- Used to suggest fixes for misspelled props.
 local COMMON_PROPS = {
-	"Name", "Size", "Position", "AnchorPoint", "Rotation", "Visible", "ZIndex", "LayoutOrder", "AutomaticSize",
-	"BackgroundColor3", "BackgroundTransparency", "BorderSizePixel", "ClipsDescendants", "Text", "TextColor3",
-	"TextSize", "TextWrapped", "TextScaled", "TextXAlignment", "TextYAlignment", "FontFace", "RichText", "Image",
-	"ImageColor3", "ImageTransparency", "ScaleType", "Enabled", "DisplayOrder", "OnClick", "OnActivated",
-	"OnMouseEnter", "OnMouseLeave", "Children", "Corner", "Padding", "Stroke", "Layout", "Gap", "Align", "CellSize",
+	"Name",
+	"Size",
+	"Position",
+	"AnchorPoint",
+	"Rotation",
+	"Visible",
+	"ZIndex",
+	"LayoutOrder",
+	"AutomaticSize",
+	"BackgroundColor3",
+	"BackgroundTransparency",
+	"BorderSizePixel",
+	"ClipsDescendants",
+	"Text",
+	"TextColor3",
+	"TextSize",
+	"TextWrapped",
+	"TextScaled",
+	"TextXAlignment",
+	"TextYAlignment",
+	"FontFace",
+	"RichText",
+	"Image",
+	"ImageColor3",
+	"ImageTransparency",
+	"ScaleType",
+	"Enabled",
+	"DisplayOrder",
+	"OnClick",
+	"OnActivated",
+	"OnMouseEnter",
+	"OnMouseLeave",
+	"Children",
+	"Corner",
+	"Padding",
+	"Stroke",
+	"Layout",
+	"Gap",
+	"Align",
+	"CellSize",
 }
 
 local UI = {}
@@ -141,9 +186,13 @@ end
 local function applyShortcuts(instance: Instance, props: { [string]: any })
 	if props.Corner then
 		local corner = addChild(instance, "UICorner", {})
-		bindProperty(corner, "CornerRadius", Reactive.Computed(function()
-			return UDim.new(0, Reactive.read(props.Corner))
-		end))
+		bindProperty(
+			corner,
+			"CornerRadius",
+			Reactive.Computed(function()
+				return UDim.new(0, Reactive.read(props.Corner))
+			end)
+		)
 	end
 	if props.Padding then
 		local padding = Reactive.read(props.Padding)
@@ -251,7 +300,7 @@ local function merge(defaults: { [any]: any }, props: { [any]: any }?): { [any]:
 end
 
 local function build(className: string, props: { [any]: any }, functionName: string): Instance
-	local ok, instance = pcall(Instance.new, className)
+	local ok, instance = pcall(Instance.new :: any, className)
 	if not ok then
 		Errors.raise(`{functionName}: "{className}" isn't a class that can be created.`)
 	end
@@ -288,10 +337,7 @@ local function build(className: string, props: { [any]: any }, functionName: str
 							table.insert(candidates, name)
 						end
 					end
-					Errors.raise(
-						`{functionName}: {className} has no property or event called "{key}".`,
-						Errors.didYouMean(key, candidates)
-					)
+					Errors.raise(`{functionName}: {className} has no property or event called "{key}".`, Errors.didYouMean(key, candidates))
 				end
 				bindProperty(instance, key, value)
 			end
@@ -337,11 +383,15 @@ function UI.Screen(name: string, props: { [any]: any }?): ScreenGui
 	if old and old:GetAttribute(SCREEN_ATTRIBUTE) then
 		old:Destroy()
 	end
-	local screen = build("ScreenGui", merge({
-		Name = name,
-		ResetOnSpawn = false,
-		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	}, props), "K.UI.Screen") :: ScreenGui
+	local screen = build(
+		"ScreenGui",
+		merge({
+			Name = name,
+			ResetOnSpawn = false,
+			ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		}, props),
+		"K.UI.Screen"
+	) :: ScreenGui
 	screen:SetAttribute(SCREEN_ATTRIBUTE, true)
 	screen.Parent = playerGui
 	return screen
@@ -349,48 +399,60 @@ end
 
 -- A rounded box with padding that grows to fit what's inside.
 function UI.Panel(props: { [any]: any }?): Frame
-	return build("Frame", merge({
-		Name = "Panel",
-		BackgroundColor3 = UI.Theme.Background,
-		BackgroundTransparency = 0.1,
-		AutomaticSize = Enum.AutomaticSize.XY,
-		Size = UDim2.new(),
-		Corner = UI.Theme.Corner,
-		Padding = 10,
-	}, props), "K.UI.Panel") :: Frame
+	return build(
+		"Frame",
+		merge({
+			Name = "Panel",
+			BackgroundColor3 = UI.Theme.Background,
+			BackgroundTransparency = 0.1,
+			AutomaticSize = Enum.AutomaticSize.XY,
+			Size = UDim2.new(),
+			Corner = UI.Theme.Corner,
+			Padding = 10,
+		}, props),
+		"K.UI.Panel"
+	) :: Frame
 end
 
 function UI.Label(props: { [any]: any }?): TextLabel
-	return build("TextLabel", merge({
-		Name = "Label",
-		BackgroundTransparency = 1,
-		AutomaticSize = Enum.AutomaticSize.XY,
-		Size = UDim2.new(),
-		FontFace = UI.Theme.Font,
-		TextSize = UI.Theme.TextSize,
-		TextColor3 = UI.Theme.Text,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		RichText = false,
-		Text = "",
-	}, props), "K.UI.Label") :: TextLabel
+	return build(
+		"TextLabel",
+		merge({
+			Name = "Label",
+			BackgroundTransparency = 1,
+			AutomaticSize = Enum.AutomaticSize.XY,
+			Size = UDim2.new(),
+			FontFace = UI.Theme.Font,
+			TextSize = UI.Theme.TextSize,
+			TextColor3 = UI.Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			RichText = false,
+			Text = "",
+		}, props),
+		"K.UI.Label"
+	) :: TextLabel
 end
 
 -- A button that reacts to hover and presses. OnClick works for mouse, touch and gamepad.
 function UI.Button(props: { [any]: any }?): TextButton
-	local button = build("TextButton", merge({
-		Name = "Button",
-		BackgroundColor3 = UI.Theme.Accent,
-		AutoButtonColor = false,
-		AutomaticSize = Enum.AutomaticSize.XY,
-		Size = UDim2.new(),
-		FontFace = UI.Theme.BoldFont,
-		TextSize = UI.Theme.TextSize,
-		TextColor3 = UI.Theme.Text,
-		RichText = false,
-		Text = "Button",
-		Corner = 8,
-		Padding = 10,
-	}, props), "K.UI.Button") :: TextButton
+	local button = build(
+		"TextButton",
+		merge({
+			Name = "Button",
+			BackgroundColor3 = UI.Theme.Accent,
+			AutoButtonColor = false,
+			AutomaticSize = Enum.AutomaticSize.XY,
+			Size = UDim2.new(),
+			FontFace = UI.Theme.BoldFont,
+			TextSize = UI.Theme.TextSize,
+			TextColor3 = UI.Theme.Text,
+			RichText = false,
+			Text = "Button",
+			Corner = 8,
+			Padding = 10,
+		}, props),
+		"K.UI.Button"
+	) :: TextButton
 
 	-- Hover and press feedback. The scale always comes from both flags together, so
 	-- events arriving out of order (or never, like MouseLeave on touch screens) can't
@@ -447,12 +509,16 @@ function UI.Button(props: { [any]: any }?): TextButton
 end
 
 function UI.Image(props: { [any]: any }?): ImageLabel
-	return build("ImageLabel", merge({
-		Name = "Image",
-		BackgroundTransparency = 1,
-		Size = UDim2.fromOffset(48, 48),
-		ScaleType = Enum.ScaleType.Fit,
-	}, props), "K.UI.Image") :: ImageLabel
+	return build(
+		"ImageLabel",
+		merge({
+			Name = "Image",
+			BackgroundTransparency = 1,
+			Size = UDim2.fromOffset(48, 48),
+			ScaleType = Enum.ScaleType.Fit,
+		}, props),
+		"K.UI.Image"
+	) :: ImageLabel
 end
 
 -- A progress bar. Value goes from 0 (empty) to 1 (full) and can be a State.
@@ -469,18 +535,22 @@ function UI.Bar(props: { [any]: any }?): Frame
 		end
 		return UDim2.fromScale(math.clamp(amount, 0, 1), 1)
 	end)
-	return build("Frame", merge({
-		Name = "Bar",
-		Size = UDim2.fromOffset(200, 14),
-		BackgroundColor3 = UI.Theme.Surface,
-		Corner = 999,
-		build("Frame", {
-			Name = "Fill",
-			BackgroundColor3 = fillColor,
-			Size = fillSize,
+	return build(
+		"Frame",
+		merge({
+			Name = "Bar",
+			Size = UDim2.fromOffset(200, 14),
+			BackgroundColor3 = UI.Theme.Surface,
 			Corner = 999,
-		}, "K.UI.Bar"),
-	}, settings), "K.UI.Bar") :: Frame
+			build("Frame", {
+				Name = "Fill",
+				BackgroundColor3 = fillColor,
+				Size = fillSize,
+				Corner = 999,
+			}, "K.UI.Bar"),
+		}, settings),
+		"K.UI.Bar"
+	) :: Frame
 end
 
 -- One child per item of a list State, rebuilt when the list changes:
@@ -500,8 +570,8 @@ local valueStates: { [string]: any } = {}
 local sharedStates: { [string]: any } = {}
 local timerStates: { [string]: any } = {}
 local machineStates: { [string]: any } = {}
-local healthState = nil
-local questsState = nil
+local healthState: Reactive.State? = nil
+local questsState: Reactive.State? = nil
 local leaderboardStates: { [string]: any } = {}
 
 -- A State that always holds your amount of a currency.
@@ -627,14 +697,15 @@ function UI.FromStat(name: string)
 end
 
 -- A State holding your active quests: { { Id, Name, Objectives = { { Text, Progress, Amount } }, Ready } }.
-function UI.FromQuests()
+function UI.FromQuests(): Reactive.State
 	if questsState == nil then
-		questsState = Reactive.State(Quests.Get())
+		local state = Reactive.State(Quests.Get())
+		questsState = state
 		Quests.OnChanged(function(list)
-			questsState:Set(list)
+			state:Set(list)
 		end)
 	end
-	return questsState
+	return questsState :: Reactive.State
 end
 
 -- A State holding a global leaderboard's top entries: { { Rank, UserId, Name, Value } }.
@@ -651,7 +722,7 @@ function UI.FromLeaderboard(name: string)
 	return state
 end
 
-local roundState = nil
+local roundState: Reactive.State? = nil
 
 -- A State holding the round: { State, TimeLeft (whole seconds), Map, Alive, Score }.
 -- It updates every second while there's a countdown.
@@ -673,8 +744,13 @@ function UI.FromRound()
 		while true do
 			local new = snapshot()
 			local old = state:Peek()
-			if new.State ~= old.State or new.TimeLeft ~= old.TimeLeft or new.Map ~= old.Map
-				or new.Alive ~= old.Alive or new.Score ~= old.Score then
+			if
+				new.State ~= old.State
+				or new.TimeLeft ~= old.TimeLeft
+				or new.Map ~= old.Map
+				or new.Alive ~= old.Alive
+				or new.Score ~= old.Score
+			then
 				state:Set(new)
 			end
 			task.wait(0.25)

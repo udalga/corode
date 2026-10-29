@@ -134,15 +134,33 @@ export type Chain = {
 	Destroy: (self: Chain) -> (),
 }
 
--- What K.When(target) returns. Events work with both . and :, and take
--- (options?, callback?): Touched, Clicked and Triggered for parts and models,
--- Reaches(amount) and Changes() for currencies.
+export type TouchOptions = { Cooldown: number? }
+export type ClickOptions = { Cooldown: number?, MaxDistance: number? }
+export type PromptOptions = {
+	Cooldown: number?,
+	MaxDistance: number?,
+	ActionText: string?,
+	ObjectText: string?,
+	HoldDuration: number?,
+	Key: (Enum.KeyCode | string)?,
+}
+
+-- An event that takes (options?, callback?) or (callback). Both
+-- K.When(part).Touched() and K.When(part):Touched() work.
+type Event<Options, Callback> =
+	((first: (Options | Callback)?, callback: Callback?) -> Chain)
+	& ((self: any, first: (Options | Callback)?, callback: Callback?) -> Chain)
+
+-- What K.When(target) returns: Touched, Clicked and Triggered for parts and
+-- models, Reaches(amount) and Changes() for currencies.
 export type Subject = {
-	Touched: (...any) -> Chain,
-	Clicked: (...any) -> Chain,
-	Triggered: (...any) -> Chain,
-	Reaches: (...any) -> Chain,
-	Changes: (...any) -> Chain,
+	Touched: Event<TouchOptions, (Player, BasePart) -> ()>,
+	Clicked: Event<ClickOptions, (Player) -> ()>,
+	Triggered: Event<PromptOptions, (Player) -> ()>,
+	Reaches: ((amount: number, callback: ((Player) -> ())?) -> Chain)
+		& ((self: Subject, amount: number, callback: ((Player) -> ())?) -> Chain),
+	Changes: ((callback: ((Player, number, number) -> ())?) -> Chain)
+		& ((self: Subject, callback: ((Player, number, number) -> ())?) -> Chain),
 }
 
 type ChainData = {
@@ -359,10 +377,7 @@ local function resolveInventory(inventory: any, action: string)
 	end
 	if type(inventory) == "string" then
 		if not table.find(Inventory.Names(), inventory) then
-			Errors.raise(
-				`:{action}() can't find an inventory called "{inventory}".`,
-				Errors.didYouMean(inventory, Inventory.Names())
-			)
+			Errors.raise(`:{action}() can't find an inventory called "{inventory}".`, Errors.didYouMean(inventory, Inventory.Names()))
 		end
 		return Inventory.Get(inventory)
 	end
@@ -594,9 +609,7 @@ end
 -- Moves the player to a Part, Model, Vector3 or CFrame.
 function Chain.Teleport(chain: ChainData, target: any)
 	local kind = typeof(target)
-	local valid = kind == "Vector3"
-		or kind == "CFrame"
-		or (kind == "Instance" and (target:IsA("BasePart") or target:IsA("Model")))
+	local valid = kind == "Vector3" or kind == "CFrame" or (kind == "Instance" and (target:IsA("BasePart") or target:IsA("Model")))
 	if not valid then
 		Errors.raise(`:Teleport() can't move a player to {Errors.describe(target)}.`, {
 			"Use a Part, a Model, a Vector3 or a CFrame.",
@@ -822,9 +835,7 @@ function InstanceEvents.Triggered(subject: InstanceSubject, first: any, second: 
 
 	local prompt = if target:IsA("ProximityPrompt") then target else target:FindFirstChildOfClass("ProximityPrompt")
 	if prompt == nil then
-		local holder = if target:IsA("Model")
-			then target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart", true)
-			else target
+		local holder = if target:IsA("Model") then target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart", true) else target
 		if holder == nil or not (holder:IsA("BasePart") or holder:IsA("Attachment")) then
 			Errors.raise(`:Triggered() needs a Part, Attachment or Model with parts, but got {Errors.describe(target)}.`)
 		end
@@ -929,36 +940,36 @@ end
 
 -- On the server this runs after the player's data has loaded.
 function When.PlayerJoins(callback: ((Player) -> ())?): Chain
-	local chain = playerChain(callback, "K.When.PlayerJoins", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.PlayerJoins", function(listening: ChainData)
 		return PlayersModule.OnJoin(function(player)
-			trigger(chain, player)
+			trigger(listening, player)
 		end)
 	end)
 	return chain
 end
 
 function When.PlayerLeaves(callback: ((Player) -> ())?): Chain
-	local chain = playerChain(callback, "K.When.PlayerLeaves", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.PlayerLeaves", function(listening: ChainData)
 		return PlayersModule.OnLeave(function(player)
-			trigger(chain, player)
+			trigger(listening, player)
 		end)
 	end)
 	return chain
 end
 
 function When.CharacterSpawns(callback: ((Player, Model) -> ())?): Chain
-	local chain = playerChain(callback, "K.When.CharacterSpawns", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.CharacterSpawns", function(listening: ChainData)
 		return PlayersModule.OnCharacter(function(player, character)
-			trigger(chain, player, character)
+			trigger(listening, player, character)
 		end)
 	end)
 	return chain
 end
 
 function When.PlayerDies(callback: ((Player, Model) -> ())?): Chain
-	local chain = playerChain(callback, "K.When.PlayerDies", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.PlayerDies", function(listening: ChainData)
 		return PlayersModule.OnDeath(function(player, character)
-			trigger(chain, player, character)
+			trigger(listening, player, character)
 		end)
 	end)
 	return chain
@@ -982,10 +993,10 @@ end
 -- Runs for a player who kills someone (a player or NPC) with Combat damage.
 -- The chain gets (player, victim).
 function When.PlayerKills(callback: ((Player, Instance) -> ())?): Chain
-	local chain = playerChain(callback, "K.When.PlayerKills", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.PlayerKills", function(listening: ChainData)
 		return Combat.Killed:Connect(function(victim, killer)
 			if killer and killer:IsA("Player") then
-				trigger(chain, killer, victim)
+				trigger(listening, killer, victim)
 			end
 		end)
 	end)
@@ -997,10 +1008,10 @@ function When.QuestCompleted(id: any, callback: ((Player) -> ())?): Chain
 	if type(id) == "function" then
 		id, callback = nil, id
 	end
-	local chain = playerChain(callback, "K.When.QuestCompleted", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.QuestCompleted", function(listening: ChainData)
 		return Quests.Completed:Connect(function(player, completedId)
 			if id == nil or completedId == id then
-				trigger(chain, player, completedId)
+				trigger(listening, player, completedId)
 			end
 		end)
 	end)
@@ -1018,11 +1029,11 @@ end
 -- Runs for every player in a round when it starts (needs K.Rounds.Define).
 function When.RoundStarts(callback: ((Player) -> ())?): Chain
 	requireRoundsServer("K.When.RoundStarts")
-	local chain = playerChain(callback, "K.When.RoundStarts", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.RoundStarts", function(listening: ChainData)
 		return Rounds.Started:Connect(function(round)
 			for _, player in round.Players do
 				if player.Parent == Players then
-					trigger(chain, player)
+					trigger(listening, player)
 				end
 			end
 		end)
@@ -1033,11 +1044,11 @@ end
 -- Runs for every player who played a round when it ends. The chain gets (player, result).
 function When.RoundEnds(callback: ((Player, any) -> ())?): Chain
 	requireRoundsServer("K.When.RoundEnds")
-	local chain = playerChain(callback, "K.When.RoundEnds", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.RoundEnds", function(listening: ChainData)
 		return Rounds.Ended:Connect(function(round, result)
 			for _, player in round.Players do
 				if player.Parent == Players then
-					trigger(chain, player, result)
+					trigger(listening, player, result)
 				end
 			end
 		end)
@@ -1048,10 +1059,10 @@ end
 -- Runs for each winner of a round.
 function When.PlayerWinsRound(callback: ((Player) -> ())?): Chain
 	requireRoundsServer("K.When.PlayerWinsRound")
-	local chain = playerChain(callback, "K.When.PlayerWinsRound", function(chain: ChainData)
+	local chain = playerChain(callback, "K.When.PlayerWinsRound", function(listening: ChainData)
 		return Rounds.Ended:Connect(function(_, result)
 			for _, player in result.Winners do
-				trigger(chain, player)
+				trigger(listening, player)
 			end
 		end)
 	end)
@@ -1090,7 +1101,7 @@ return setmetatable(When, {
 			`K.When has no "{tostring(key)}".`,
 			Errors.didYouMean(tostring(key), WHEN_NAMES, {
 				`Player events: {table.concat(WHEN_NAMES, ", ")}`,
-				"For parts and currencies: K.When(workspace.Part).Touched() or K.When(\"Coins\").Reaches(100)",
+				'For parts and currencies: K.When(workspace.Part).Touched() or K.When("Coins").Reaches(100)',
 			})
 		)
 	end,

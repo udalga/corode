@@ -346,8 +346,11 @@ return setmetatable(Timer, {
 		return Timer.Define(name, options)
 	end,
 	__index = function(_, key)
-		Errors.raise(`K.Timer has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
-			'Create a timer with K.Timer("Chest", { Duration = 60 }).',
-		}))
+		Errors.raise(
+			`K.Timer has no "{tostring(key)}".`,
+			Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
+				'Create a timer with K.Timer("Chest", { Duration = 60 }).',
+			})
+		)
 	end,
 })

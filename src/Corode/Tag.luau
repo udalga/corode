@@ -176,12 +176,18 @@ function Tag.On(tag: string, options: any, callback: any)
 		_connections = {} :: { RBXScriptConnection },
 		_stopped = false,
 	}, Behavior)
-	table.insert(behavior._connections, CollectionService:GetInstanceAddedSignal(tag):Connect(function(instance)
-		behavior:_added(instance)
-	end))
-	table.insert(behavior._connections, CollectionService:GetInstanceRemovedSignal(tag):Connect(function(instance)
-		behavior:_removed(instance)
-	end))
+	table.insert(
+		behavior._connections,
+		CollectionService:GetInstanceAddedSignal(tag):Connect(function(instance)
+			behavior:_added(instance)
+		end)
+	)
+	table.insert(
+		behavior._connections,
+		CollectionService:GetInstanceRemovedSignal(tag):Connect(function(instance)
+			behavior:_removed(instance)
+		end)
+	)
 	for _, instance in CollectionService:GetTagged(tag) do
 		behavior:_added(instance)
 	end
@@ -219,8 +225,11 @@ return setmetatable(Tag, {
 		return Tag.On(tag, options, callback)
 	end,
 	__index = function(_, key)
-		Errors.raise(`K.Tag has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
-			'Give tagged parts a behavior with K.Tag("Lava", function(part) ... end).',
-		}))
+		Errors.raise(
+			`K.Tag has no "{tostring(key)}".`,
+			Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
+				'Give tagged parts a behavior with K.Tag("Lava", function(part) ... end).',
+			})
+		)
 	end,
 })

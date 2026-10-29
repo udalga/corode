@@ -69,9 +69,7 @@ function Config.Configure(options: { [string]: any })
 		Errors.raise("K.Configure: AutoSaveInterval must be at least 30 seconds, to stay within DataStore limits.")
 	end
 	if merged.SessionLockTimeout < merged.AutoSaveInterval * 2 then
-		Errors.raise(
-			`K.Configure: SessionLockTimeout must be at least twice AutoSaveInterval ({merged.AutoSaveInterval * 2} seconds).`
-		)
+		Errors.raise(`K.Configure: SessionLockTimeout must be at least twice AutoSaveInterval ({merged.AutoSaveInterval * 2} seconds).`)
 	end
 	if merged.NetRateLimit <= 0 or merged.NetTimeout <= 0 then
 		Errors.raise("K.Configure: NetRateLimit and NetTimeout must be above 0.")

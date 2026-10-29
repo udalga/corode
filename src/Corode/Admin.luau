@@ -61,7 +61,8 @@ local MAX_COMMAND_LENGTH = 200
 local NAME_PATTERN = "^%a[%w_]*$"
 local ARG_TYPES = { "player", "players", "number", "integer", "string", "text", "duration" }
 -- Roblox's own chat commands; Corode doesn't take these names.
-local RESERVED = { help = true, mute = true, unmute = true, whisper = true, w = true, team = true, t = true, console = true, emote = true, e = true }
+local RESERVED =
+	{ help = true, mute = true, unmute = true, whisper = true, w = true, team = true, t = true, console = true, emote = true, e = true }
 
 type Role = { Name: string, Level: number, Users: { [number]: boolean }, Group: number?, MinRank: number }
 type Argument = { Type: string, Optional: boolean }
@@ -141,7 +142,7 @@ function Admin.LevelOf(player: Player?): number
 		Errors.expect(player, "Player", "the player", "K.Admin.LevelOf")
 		return levels[player :: Player] or 0
 	end
-	return Players.LocalPlayer:GetAttribute(LEVEL_ATTRIBUTE) or 0
+	return (Players.LocalPlayer:GetAttribute(LEVEL_ATTRIBUTE) or 0) :: number
 end
 
 -- True if `admin` may use commands on `target`: themselves, or someone with a lower level.
@@ -445,7 +446,7 @@ function Admin.Ban(target: Player | number, options: { Minutes: number?, Reason:
 	requireServer("K.Admin.Ban")
 	local userId = userIdOf(target, "K.Admin.Ban")
 	Errors.checkOptions(options, { Minutes = "number", Reason = "string", By = "Player" }, "K.Admin.Ban")
-	local settings: { [string]: any } = options or {}
+	local settings: { [string]: any } = (options or {}) :: any
 	local reason = string.sub(settings.Reason or "You are banned from this game.", 1, 300)
 	local seconds = if settings.Minutes then math.max(1, math.floor(settings.Minutes * 60)) else -1
 	local official = pcall(Players.BanAsync, Players, {
@@ -459,10 +460,11 @@ function Admin.Ban(target: Player | number, options: { Minutes: number?, Reason:
 	local saved = official
 	if not official then
 		local store = banStore()
-		saved = store ~= nil and pcall(store.SetAsync, store, tostring(userId), {
-			Until = if seconds < 0 then -1 else os.time() + seconds,
-			Reason = reason,
-		})
+		saved = store ~= nil
+			and pcall(store.SetAsync, store, tostring(userId), {
+				Until = if seconds < 0 then -1 else os.time() + seconds,
+				Reason = reason,
+			})
 	end
 	if not saved then
 		Errors.warn(`Couldn't save the ban for user {userId}; they were only kicked.`)
@@ -697,7 +699,7 @@ function Admin._listen()
 		end
 	end
 	task.spawn(function()
-		local folder = TextChatService:WaitForChild(COMMAND_FOLDER, math.huge)
+		local folder = TextChatService:WaitForChild(COMMAND_FOLDER, math.huge) :: Instance
 		for _, command in folder:GetChildren() do
 			hook(command)
 		end

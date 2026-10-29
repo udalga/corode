@@ -343,9 +343,13 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	local GRANTED = Enum.ProductPurchaseDecision.PurchaseGranted
 	local entry = productsById[receipt.ProductId]
 	if entry == nil then
-		Errors.warnOnce(`shop-unknown:{receipt.ProductId}`, `A player bought product {receipt.ProductId}, but no K.Shop.Product uses that id.`, {
-			"It stays unprocessed, so Roblox will retry it once you add the product.",
-		})
+		Errors.warnOnce(
+			`shop-unknown:{receipt.ProductId}`,
+			`A player bought product {receipt.ProductId}, but no K.Shop.Product uses that id.`,
+			{
+				"It stays unprocessed, so Roblox will retry it once you add the product.",
+			}
+		)
 		return NOT_YET
 	end
 	local player = Players:GetPlayerByUserId(receipt.PlayerId)
@@ -411,7 +415,8 @@ function Shop.GamePass(name: string, id: number, options: { [string]: any }?)
 	local settings: { [string]: any } = options or {}
 	Errors.checkOptions(settings, { Multiply = "table", Stats = "table", OnOwned = "function" }, "K.Shop.GamePass")
 	checkBenefits(settings, `K.Shop.GamePass("{name}")`)
-	local entry: Entry = { Name = name, Kind = "GamePass", Id = id, Multiply = settings.Multiply, Stats = settings.Stats, OnOwned = settings.OnOwned }
+	local entry: Entry =
+		{ Name = name, Kind = "GamePass", Id = id, Multiply = settings.Multiply, Stats = settings.Stats, OnOwned = settings.OnOwned }
 	register(entry)
 	passesById[id] = entries[name]
 	hookMultipliers(entry)
@@ -636,7 +641,10 @@ function Shop.Prompt(...: any)
 	Errors.expect(name, "string", "the shop name", "K.Shop.Prompt")
 	local item = if IS_SERVER then entries[name] else waitForCatalog(name)
 	if item == nil then
-		Errors.raise(`K.Shop.Prompt: there's nothing in the shop called {Errors.quote(name)}.`, Errors.didYouMean(name, if IS_SERVER then names else {}))
+		Errors.raise(
+			`K.Shop.Prompt: there's nothing in the shop called {Errors.quote(name)}.`,
+			Errors.didYouMean(name, if IS_SERVER then names else {})
+		)
 		return
 	end
 	local shopItem = item :: any

@@ -129,10 +129,7 @@ function Rewards.check(bundle: any, functionName: string)
 	end
 	for item, amount in bundle.Items or {} do
 		if not Items.Exists(item) then
-			Errors.raise(
-				`{functionName}: reward item {Errors.quote(item)} doesn't exist.`,
-				Errors.didYouMean(tostring(item), Items.Ids())
-			)
+			Errors.raise(`{functionName}: reward item {Errors.quote(item)} doesn't exist.`, Errors.didYouMean(tostring(item), Items.Ids()))
 		end
 		if type(amount) ~= "number" or amount % 1 ~= 0 or amount < 1 then
 			Errors.raise(`{functionName}: reward item amounts must be whole numbers of 1 or more.`)
@@ -175,7 +172,8 @@ function Rewards.Describe(bundle: { [string]: any }): string
 end
 
 local function inventoryFor(bundle: { [string]: any })
-	return if bundle.Inventory then Inventory.Get(bundle.Inventory) else Inventory.Default()
+	local name = bundle.Inventory
+	return if type(name) == "string" then Inventory.Get(name) else Inventory.Default()
 end
 
 -- True if the player can receive the whole bundle right now (their data is loaded
@@ -276,7 +274,20 @@ end
 -- Rules for every reward: K.Rewards.Before("Give", function(ctx) ... end).
 -- ctx: Player, Bundle (a copy you can change), Source ("Daily", "Code", "Quest",
 -- "Playtime", "Shop", "Round", "When" or your own), Cancel(reason).
-local exposed = Hooks._expose("K.Rewards", { Give = giveHooks })
+-- What K.Rewards hooks get as ctx.
+export type Context = {
+	Player: Player,
+	-- A copy of the reward you can change.
+	Bundle: { [string]: any },
+	Source: string,
+	-- ctx:Cancel("reason") stops the operation.
+	Cancel: (...any) -> (),
+	Cancelled: boolean,
+	Reason: string?,
+	[string]: any,
+}
+
+local exposed: Hooks.Exposed<Context> = Hooks._expose("K.Rewards", { Give = giveHooks }) :: any
 Rewards.Before = exposed.Before
 Rewards.After = exposed.After
 Rewards.Use = exposed.Use

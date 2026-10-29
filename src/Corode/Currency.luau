@@ -37,7 +37,7 @@ local RunService = game:GetService("RunService")
 
 local Errors = require(script.Parent.Util.Errors)
 local Guard = require(script.Parent.Util.Guard)
-local Pipeline = require(script.Parent.Util.Pipeline)
+local Signal = require(script.Parent.Util.Signal)
 local Value = require(script.Parent.Value)
 
 local IS_SERVER = RunService:IsServer()
@@ -56,6 +56,9 @@ export type Definition = {
 	Saved: boolean,
 	Integer: boolean,
 }
+
+-- What K.Currency hooks get as ctx: Player, Currency, Amount, Source, Old, New.
+export type Context = Value.ValueContext<number> & { Currency: string, Amount: number }
 
 local Currency = {}
 
@@ -142,7 +145,7 @@ function Currency.Define(name: string, options: { Default: number?, Min: number?
 		})
 	end
 	Errors.checkOptions(options, DEFINE_OPTIONS, "K.Currency.Define")
-	local settings: { [string]: any } = options or {}
+	local settings: { [string]: any } = (options or {}) :: any
 	Value._define(family, name, {
 		Default = settings.Default or 0,
 		Min = settings.Min or 0,
@@ -226,30 +229,30 @@ function Currency.OnChanged(name: string, callback: (...any) -> ())
 	local player = Players.LocalPlayer
 	local attribute = ATTRIBUTE_PREFIX .. name
 	local last = player:GetAttribute(attribute) or 0
-	return player:GetAttributeChangedSignal(attribute):Connect(function()
+	return Signal.wrap(player:GetAttributeChangedSignal(attribute):Connect(function()
 		local new = player:GetAttribute(attribute) or 0
 		local old = last
 		last = new
 		callback(new, old)
-	end)
+	end))
 end
 
 -- Runs before an operation on any currency. Change ctx.Amount, or ctx:Cancel("reason") to stop it.
-function Currency.Before(operation: string, callback: (Pipeline.Context) -> (), priority: number?): () -> ()
+function Currency.Before(operation: string, callback: (Context) -> (), priority: number?): () -> ()
 	requireServer("K.Currency.Before")
 	Errors.expect(callback, "function", "the callback", "K.Currency.Before")
 	return getPipeline(operation, "K.Currency.Before"):Before(callback, priority)
 end
 
 -- Runs after an operation succeeded; ctx.Old and ctx.New hold the values.
-function Currency.After(operation: string, callback: (Pipeline.Context) -> ()): () -> ()
+function Currency.After(operation: string, callback: (Context) -> ()): () -> ()
 	requireServer("K.Currency.After")
 	Errors.expect(callback, "function", "the callback", "K.Currency.After")
 	return getPipeline(operation, "K.Currency.After"):After(callback)
 end
 
 -- Full middleware: callback(ctx, next). Call next() to continue, or don't to stop.
-function Currency.Use(operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?): () -> ()
+function Currency.Use(operation: string, callback: (Context, () -> ()) -> (), priority: number?): () -> ()
 	requireServer("K.Currency.Use")
 	Errors.expect(callback, "function", "the callback", "K.Currency.Use")
 	return getPipeline(operation, "K.Currency.Use"):Use(callback, priority)
@@ -302,7 +305,7 @@ function Currency.AddMultiplier(source: (Player, string) -> number): () -> ()
 end
 
 -- Replaces an operation's core. Call ctx:Commit(value) to apply, or return false to fail.
-function Currency.Override(operation: string, callback: (Pipeline.Context) -> boolean?)
+function Currency.Override(operation: string, callback: (Context) -> boolean?)
 	requireServer("K.Currency.Override")
 	Errors.expect(callback, "function", "the callback", "K.Currency.Override")
 	getPipeline(operation, "K.Currency.Override")

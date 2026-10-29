@@ -40,14 +40,26 @@ local MAX_NAME_LENGTH = 40
 local MAX_TEXT_LENGTH = 1000
 local OPTIONS = { Default = "number|string|boolean", Min = "number", Max = "number", Validate = "function" }
 
-export type Shared = {
+-- A shared value holding a T. Only the server changes it.
+export type Shared<T = any> = {
 	Name: string,
 	Changed: Signal.Signal,
-	Get: (self: Shared) -> any,
-	Set: (self: Shared, value: any) -> (boolean, any, string?),
-	Add: (self: Shared, amount: number) -> (boolean, any, string?),
-	OnChanged: (self: Shared, callback: (any, any) -> ()) -> Signal.Connection,
+	Get: (self: Shared<T>) -> T,
+	Set: (self: Shared<T>, value: T) -> (boolean, T, string?),
+	Add: (self: Shared<T>, amount: number) -> (boolean, T, string?),
+	OnChanged: (self: Shared<T>, callback: (new: T, old: T) -> ()) -> Signal.Connection,
 }
+
+export type Options<T> = {
+	Default: T?,
+	Min: number?,
+	Max: number?,
+	Validate: ((T) -> (boolean, string?))?,
+}
+
+-- K.Shared.Define(name, default) or (name, options): the default decides the type.
+-- (K.Shared(name, ...) works the same, but its values are typed any.)
+type Define = (<T>(name: string, options: Options<T>) -> Shared<T>) & (<T>(name: string, default: T) -> Shared<T>)
 
 type Settings = {
 	Kind: string,
@@ -166,7 +178,9 @@ end
 
 local function checkName(name: any, functionName: string)
 	if type(name) ~= "string" or #name > MAX_NAME_LENGTH or string.match(name, NAME_PATTERN) == nil then
-		Errors.raise(`{functionName} expected a name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`)
+		Errors.raise(
+			`{functionName} expected a name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`
+		)
 	end
 end
 
@@ -185,11 +199,11 @@ local function buildSettings(name: string, given: any, functionName: string): Se
 		Max = options.Max or math.huge,
 		Validate = options.Validate,
 	}
-	return table.freeze(settings)
+	table.freeze(settings)
+	return settings
 end
 
--- K.Shared(name, default or options) is the same as K.Shared.Define.
-function Shared.Define(name: string, default: any): Shared
+local function define(name: string, default: any): Shared
 	checkName(name, "K.Shared")
 	local existing = handles[name]
 	if existing then
@@ -217,6 +231,9 @@ function Shared.Define(name: string, default: any): Shared
 end
 
 -- An existing shared value. On clients, any name works (its default is 0 until it arrives).
+-- K.Shared(name, default or options) is the same as K.Shared.Define.
+Shared.Define = (define :: any) :: Define
+
 function Shared.Get(name: string): Shared
 	local handle = handles[name]
 	if handle then
@@ -224,7 +241,7 @@ function Shared.Get(name: string): Shared
 	end
 	checkName(name, "K.Shared.Get")
 	if not IS_SERVER then
-		return Shared.Define(name, nil)
+		return define(name, nil)
 	end
 	Errors.raise(
 		`Shared value "{name}" doesn't exist.`,
@@ -241,11 +258,14 @@ local PUBLIC_NAMES = { "Define", "Get", "Exists" }
 
 return setmetatable(Shared, {
 	__call = function(_, name: string, default: any): Shared
-		return Shared.Define(name, default)
+		return define(name, default)
 	end,
 	__index = function(_, key)
-		Errors.raise(`K.Shared has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
-			'Create a shared value with K.Shared("Weather", "Sunny").',
-		}))
+		Errors.raise(
+			`K.Shared has no "{tostring(key)}".`,
+			Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
+				'Create a shared value with K.Shared("Weather", "Sunny").',
+			})
+		)
 	end,
 })

@@ -83,10 +83,10 @@ local NPC: NPCModule.Module = NPCModule :: any
 local UI: UIModule.Module = UIModule :: any
 
 -- Types for your own annotations, like local xp: Corode.Value = K.Value("XP").
-export type Value = Value.Value
+export type Value<T = any> = Value.Value<T>
 export type Timer = Timer.Timer
 export type Machine = Machine.Machine
-export type Shared = Shared.Shared
+export type Shared<T = any> = Shared.Shared<T>
 export type Hooks = Hooks.Hooks
 export type Context = Hooks.Context
 export type Action = Action.Action
@@ -102,6 +102,16 @@ export type State = UIModule.State
 export type Signal = Signal.Signal
 export type Connection = Signal.Connection
 export type Trove = Trove.Trove
+
+-- What hooks get as ctx, per system.
+export type ValueContext<T = any> = Value.ValueContext<T>
+export type CurrencyContext = Currency.Context
+export type InventoryContext = Inventory.Context
+export type CombatContext = Combat.Context
+export type QuestContext = Quests.Context
+export type RewardContext = Rewards.Context
+export type StatContext = Stats.Context
+export type ActionContext = Action.Context
 
 local IS_SERVER = RunService:IsServer()
 local START_REMINDER_DELAY = 10

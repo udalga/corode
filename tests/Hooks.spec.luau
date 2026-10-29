@@ -145,9 +145,11 @@ return function(t)
 		it("follows formulas", function()
 			local player = Helpers.player(t)
 			local strength = stat({ Base = 2 })
-			local damage = stat({ Formula = function(get)
-				return 10 + get(strength) * 3
-			end })
+			local damage = stat({
+				Formula = function(get)
+					return 10 + get(strength) * 3
+				end,
+			})
 			expect(K.Stats.Get(player, damage)).toBe(16)
 			K.Stats.AddBase(player, strength, 1)
 			expect(K.Stats.Get(player, damage)).toBe(19)
@@ -238,9 +240,11 @@ return function(t)
 			local order = {}
 			local brain = K.NPC.Brain({
 				Initial = "Idle",
-				States = { Idle = { Enter = function()
-					table.insert(order, "brain")
-				end } },
+				States = { Idle = {
+					Enter = function()
+						table.insert(order, "brain")
+					end,
+				} },
 			})
 			local connection = K.NPC.Spawned:Connect(function(npc)
 				table.insert(order, "spawned")

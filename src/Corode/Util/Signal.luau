@@ -105,4 +105,16 @@ end
 
 Signal.Destroy = Signal.DisconnectAll
 
+-- Gives a Roblox connection the same shape as a Signal's, with Destroy too.
+function Signal.wrap(connection: RBXScriptConnection): Connection
+	local wrapper = { Connected = true }
+	local function disconnect()
+		connection:Disconnect()
+		wrapper.Connected = false
+	end
+	wrapper.Disconnect = disconnect
+	wrapper.Destroy = disconnect
+	return wrapper :: any
+end
+
 return Signal

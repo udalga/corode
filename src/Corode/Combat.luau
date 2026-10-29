@@ -92,6 +92,23 @@ export type Attack = {
 	Projectile: { Speed: number, Range: number, Radius: number, Color: Color3 }?,
 }
 
+-- What K.Combat hooks get as ctx. Change Amount in a Before hook; After hooks
+-- see Final, the health actually taken or given.
+export type Context = {
+	Target: Instance,
+	Humanoid: Humanoid,
+	Attacker: Instance?,
+	Amount: number,
+	-- Damage only: "Physical" unless the attack says otherwise.
+	Type: string?,
+	Final: number?,
+	-- ctx:Cancel("reason") stops the operation.
+	Cancel: (...any) -> (),
+	Cancelled: boolean,
+	Reason: string?,
+	[string]: any,
+}
+
 local Combat = {}
 
 Combat.Settings = {
@@ -137,7 +154,7 @@ local function resolve(target: any): (Instance?, Humanoid?, Model?)
 	while model do
 		local humanoid = model:FindFirstChildOfClass("Humanoid")
 		if humanoid then
-			return Players:GetPlayerFromCharacter(model) or model, humanoid, model
+			return Players:GetPlayerFromCharacter(model) or model, humanoid :: Humanoid, model
 		end
 		model = model:FindFirstAncestorOfClass("Model")
 	end
@@ -347,7 +364,7 @@ local function launch(attacker: Instance, character: Model, attack: Attack, orig
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { character, bullet }
 	local position, travelled = origin, 0
-	local connection
+	local connection: RBXScriptConnection
 	connection = RunService.Heartbeat:Connect(function(deltaTime)
 		local step = math.min(settings.Speed * deltaTime, settings.Range - travelled)
 		local result = workspace:Spherecast(position, settings.Radius, direction * step, params)
@@ -565,25 +582,25 @@ function Combat.OnKill(callback: (Instance?, Instance) -> ())
 	end)
 end
 
-function Combat.Before(operation: string, callback: (Pipeline.Context) -> (), priority: number?): () -> ()
+function Combat.Before(operation: string, callback: (Context) -> (), priority: number?): () -> ()
 	requireServer("K.Combat.Before")
 	Errors.expect(callback, "function", "the callback", "K.Combat.Before")
 	return getPipeline(operation, "K.Combat.Before"):Before(callback, priority)
 end
 
-function Combat.After(operation: string, callback: (Pipeline.Context) -> ()): () -> ()
+function Combat.After(operation: string, callback: (Context) -> ()): () -> ()
 	requireServer("K.Combat.After")
 	Errors.expect(callback, "function", "the callback", "K.Combat.After")
 	return getPipeline(operation, "K.Combat.After"):After(callback)
 end
 
-function Combat.Middleware(operation: string, callback: (Pipeline.Context, () -> ()) -> (), priority: number?): () -> ()
+function Combat.Middleware(operation: string, callback: (Context, () -> ()) -> (), priority: number?): () -> ()
 	requireServer("K.Combat.Middleware")
 	Errors.expect(callback, "function", "the callback", "K.Combat.Middleware")
 	return getPipeline(operation, "K.Combat.Middleware"):Use(callback, priority)
 end
 
-function Combat.Override(operation: string, callback: (Pipeline.Context) -> boolean?)
+function Combat.Override(operation: string, callback: (Context) -> boolean?)
 	requireServer("K.Combat.Override")
 	Errors.expect(callback, "function", "the callback", "K.Combat.Override")
 	getPipeline(operation, "K.Combat.Override"):Override(callback)
@@ -641,7 +658,7 @@ function Combat._listen()
 		local character = Players.LocalPlayer.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local root = humanoid and humanoid.RootPart
-		if root then
+		if humanoid and root then
 			humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 			root.AssemblyLinearVelocity = velocity
 		end
@@ -651,19 +668,24 @@ end
 if IS_SERVER then
 	Net.Declare(HIT_EVENT)
 	Net.Declare(KNOCKBACK_EVENT)
-	Net.On(ATTACK_EVENT, { Guard.String({ Max = 50 }), Guard.Optional(Guard.Vector3()) }, function(player: Player, name: string, aim: Vector3?)
-		local attack = attacks[name]
-		if attack == nil or not attack.Client or not PlayersModule.IsReady(player) then
-			return
-		end
-		local owner, humanoid, character = resolve(player)
-		local root = humanoid and humanoid.RootPart
-		-- Ignore aims that are absurdly far away.
-		if aim and (root == nil or (aim - root.Position).Magnitude > MAX_AIM_DISTANCE) then
-			aim = nil
-		end
-		perform(owner :: Instance, humanoid, character, attack, aim)
-	end, { RateLimit = CLIENT_RATE_LIMIT })
+	Net.On(
+		ATTACK_EVENT,
+		{ Guard.String({ Max = 50 }), Guard.Optional(Guard.Vector3()) },
+		function(player: Player, name: string, aim: Vector3?)
+			local attack = attacks[name]
+			if attack == nil or not attack.Client or not PlayersModule.IsReady(player) then
+				return
+			end
+			local owner, humanoid, character = resolve(player)
+			local root = humanoid and humanoid.RootPart
+			-- Ignore aims that are absurdly far away.
+			if aim and (root == nil or (aim - root.Position).Magnitude > MAX_AIM_DISTANCE) then
+				aim = nil
+			end
+			perform(owner :: Instance, humanoid, character, attack, aim)
+		end,
+		{ RateLimit = CLIENT_RATE_LIMIT }
+	)
 end
 
 return Errors.strict(Combat, "K.Combat")

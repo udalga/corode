@@ -115,22 +115,58 @@ type Handle = {
 
 type Context = Pipeline.Context
 
--- A value made with K.Value (or a currency). Set, Add, Take, Has and the hooks
--- only work on the server; on clients, Get(player?) reads and OnChanged(new, old) listens.
-export type Value = {
+-- What hooks on a value (or a currency) get as ctx. Amount is the new value for
+-- Set and the amount for Add and Take; hooks may change it.
+export type ValueContext<T = any> = {
+	Player: Player,
+	Name: string,
+	-- The value's name for K.Value hooks, the currency's for K.Currency hooks.
+	Value: string?,
+	Currency: string?,
+	Amount: any,
+	Source: string?,
+	Old: T,
+	-- Set once the change is made (in After hooks).
+	New: T?,
+	Definition: Settings,
+	-- ctx:Commit(value) applies a value (in Override). Returns false when it isn't allowed.
+	Commit: (...any) -> boolean,
+	-- ctx:Cancel("reason") stops the operation.
+	Cancel: (...any) -> (),
+	Cancelled: boolean,
+	Reason: string?,
+	[string]: any,
+}
+
+-- Options for K.Value. The Default decides the type: a number, text or true/false.
+export type Options<T> = {
+	Default: T?,
+	Min: number?,
+	Max: number?,
+	Integer: boolean?,
+	Saved: boolean?,
+	Replicate: (boolean | string)?,
+	MaxLength: number?,
+	Validate: ((T, Player) -> (boolean, string?))?,
+}
+
+-- A value made with K.Value (or a currency), holding a T. Set, Add, Take, Has and
+-- the hooks only work on the server; on clients, Get(player?) reads and
+-- OnChanged(new, old) listens.
+export type Value<T = any> = {
 	Name: string,
 	Changed: Signal.Signal,
-	Get: (self: Value, player: Player?) -> any,
-	Set: (self: Value, player: Player, value: any, source: string?) -> (boolean, any, string?),
-	Add: (self: Value, player: Player, amount: number, source: string?) -> (boolean, any, string?),
-	Take: (self: Value, player: Player, amount: number, source: string?) -> (boolean, any, string?),
-	Has: (self: Value, player: Player, amount: number) -> boolean,
-	OnChanged: (self: Value, callback: (...any) -> ()) -> Signal.Connection,
-	Before: (self: Value, operation: string, callback: (Context) -> (), priority: number?) -> () -> (),
-	After: (self: Value, operation: string, callback: (Context) -> ()) -> () -> (),
-	Use: (self: Value, operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
-	Middleware: (self: Value, operation: string, callback: (Context, () -> ()) -> (), priority: number?) -> () -> (),
-	Override: (self: Value, operation: string, callback: (Context) -> boolean?) -> (),
+	Get: (self: Value<T>, player: Player?) -> T,
+	Set: (self: Value<T>, player: Player, value: T, source: string?) -> (boolean, T, string?),
+	Add: (self: Value<T>, player: Player, amount: number, source: string?) -> (boolean, T, string?),
+	Take: (self: Value<T>, player: Player, amount: number, source: string?) -> (boolean, T, string?),
+	Has: (self: Value<T>, player: Player, amount: number) -> boolean,
+	OnChanged: (self: Value<T>, callback: (...any) -> ()) -> Signal.Connection,
+	Before: (self: Value<T>, operation: string, callback: (ValueContext<T>) -> (), priority: number?) -> () -> (),
+	After: (self: Value<T>, operation: string, callback: (ValueContext<T>) -> ()) -> () -> (),
+	Use: (self: Value<T>, operation: string, callback: (ValueContext<T>, () -> ()) -> (), priority: number?) -> () -> (),
+	Middleware: (self: Value<T>, operation: string, callback: (ValueContext<T>, () -> ()) -> (), priority: number?) -> () -> (),
+	Override: (self: Value<T>, operation: string, callback: (ValueContext<T>) -> boolean?) -> (),
 }
 
 local Value = {}
@@ -173,7 +209,8 @@ end
 -- Whether `value` is allowed, before Min/Max clamping. Returns false and why if not.
 local function accepts(settings: Settings, value: any, player: Player?): (boolean, string?)
 	if typeof(value) ~= settings.Kind then
-		return false, `{settings.Name} is {settings.Kind == "number" and "a number" or settings.Kind == "string" and "text" or "true or false"}, not {Errors.describe(value)}`
+		local expected = if settings.Kind == "number" then "a number" elseif settings.Kind == "string" then "text" else "true or false"
+		return false, `{settings.Name} is {expected}, not {Errors.describe(value)}`
 	end
 	if settings.Kind == "number" and not Guard.isFinite(value) then
 		return false, `{settings.Name} can't be {tostring(value)}`
@@ -490,9 +527,13 @@ local function readAttribute(handle: Handle, player: Player): any
 	local value = player:GetAttribute(handle._family.Prefix .. handle.Name)
 	local ownerOnly = player:GetAttribute(OWNER_MARKER .. handle._family.Label .. "_" .. handle.Name) ~= nil
 	if value == nil and not ownerOnly and player:GetAttribute(READY_ATTRIBUTE) then
-		Errors.warnOnce(`value-missing:{handle._family.Label}:{handle.Name}`, `{handle._family.Label} "{handle.Name}" doesn't reach clients.`, {
-			`Define it in a server Script (K.{handle._family.Label}("{handle.Name}", ...)), and don't set Replicate = false.`,
-		})
+		Errors.warnOnce(
+			`value-missing:{handle._family.Label}:{handle.Name}`,
+			`{handle._family.Label} "{handle.Name}" doesn't reach clients.`,
+			{
+				`Define it in a server Script (K.{handle._family.Label}("{handle.Name}", ...)), and don't set Replicate = false.`,
+			}
+		)
 	end
 	return value
 end
@@ -553,7 +594,9 @@ end
 
 local function checkName(name: any, functionName: string)
 	if type(name) ~= "string" or #name > MAX_NAME_LENGTH or string.match(name, NAME_PATTERN) == nil then
-		Errors.raise(`{functionName} expected a name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`)
+		Errors.raise(
+			`{functionName} expected a name made of letters, numbers and _ (starting with a letter), but got {Errors.describe(name)}.`
+		)
 	end
 end
 
@@ -673,8 +716,8 @@ local valueFamily = newFamily("Value", "Values", "CorodeValue_")
 Value.Changed = valueFamily.Changed
 
 -- K.Value(name, options) is the same as K.Value.Define(name, options).
-function Value.Define(name: string, options: { [string]: any }?): Value
-	return define(valueFamily, name, options, "K.Value") :: any
+function Value.Define<T>(name: string, options: Options<T>?): Value<T>
+	return define(valueFamily, name, options :: any, "K.Value") :: any
 end
 
 -- An existing value by name (on clients, any name).
@@ -746,12 +789,15 @@ local PUBLIC_NAMES = { "Define", "Get", "Exists", "Names", "Changed" }
 
 -- Like Errors.strict, but K.Value itself can also be called.
 return setmetatable(Value, {
-	__call = function(_, name: string, options: { [string]: any }?): Value
-		return define(valueFamily, name, options, "K.Value") :: any
+	__call = function<T>(_, name: string, options: Options<T>?): Value<T>
+		return define(valueFamily, name, options :: any, "K.Value") :: any
 	end,
 	__index = function(_, key)
-		Errors.raise(`K.Value has no "{tostring(key)}".`, Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
-			'Create a value with K.Value("XP", { Default = 0 }).',
-		}))
+		Errors.raise(
+			`K.Value has no "{tostring(key)}".`,
+			Errors.didYouMean(tostring(key), PUBLIC_NAMES, {
+				'Create a value with K.Value("XP", { Default = 0 }).',
+			})
+		)
 	end,
 })

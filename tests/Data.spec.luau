@@ -82,11 +82,16 @@ return function(t)
 		it("start at the newest version without running migrations", function()
 			local ran = false
 			local save = record()
-			local refusal = Data._prepare(save, true, { migration(1, function()
-				ran = true
-			end), migration(4, function()
-				ran = true
-			end) }, 1)
+			local refusal = Data._prepare(
+				save,
+				true,
+				{ migration(1, function()
+					ran = true
+				end), migration(4, function()
+					ran = true
+				end) },
+				1
+			)
 			expect(refusal).toBeNil()
 			expect(ran).toBe(false)
 			expect(save.DataVersion).toBe(4)
@@ -120,9 +125,10 @@ return function(t)
 
 		it("changes nothing when a migration leaves something unsaveable", function()
 			local save = record()
-			local refusal, problem = Data._prepare(save, false, { migration(1, function(data)
-				data.Data.Spawn = Vector3.new(1, 2, 3)
-			end) }, 1)
+			local refusal, problem =
+				Data._prepare(save, false, { migration(1, function(data)
+					data.Data.Spawn = Vector3.new(1, 2, 3)
+				end) }, 1)
 			expect(refusal).toBe("failed")
 			expect(problem).toContain("Vector3")
 			expect(save.Data.Spawn).toBeNil()

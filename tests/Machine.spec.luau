@@ -39,9 +39,11 @@ return function(t)
 			local m = machine({
 				Initial = "Idle",
 				States = {
-					Idle = { Enter = function(_, old)
-						entered = old or "start"
-					end },
+					Idle = {
+						Enter = function(_, old)
+							entered = old or "start"
+						end,
+					},
 					Busy = {},
 				},
 			})
@@ -55,12 +57,16 @@ return function(t)
 			local m = machine({
 				Initial = "A",
 				States = {
-					A = { Exit = function(_, new)
-						table.insert(log, "exit A to " .. new)
-					end },
-					B = { Enter = function(_, old)
-						table.insert(log, "enter B from " .. old)
-					end },
+					A = {
+						Exit = function(_, new)
+							table.insert(log, "exit A to " .. new)
+						end,
+					},
+					B = {
+						Enter = function(_, old)
+							table.insert(log, "enter B from " .. old)
+						end,
+					},
 				},
 			})
 			m:Go("B")
@@ -88,9 +94,11 @@ return function(t)
 			local m = machine({
 				Initial = "Waiting",
 				States = {
-					Waiting = { Update = function()
-						return if ready then "Go" else nil
-					end },
+					Waiting = {
+						Update = function()
+							return if ready then "Go" else nil
+						end,
+					},
 					Go = {},
 				},
 			})
@@ -107,9 +115,11 @@ return function(t)
 				Initial = "A",
 				States = {
 					A = {},
-					B = { Enter = function()
-						return "C"
-					end },
+					B = {
+						Enter = function()
+							return "C"
+						end,
+					},
 					C = {},
 				},
 			})
@@ -143,12 +153,16 @@ return function(t)
 			local m = machine({
 				Initial = "Ping",
 				States = {
-					Ping = { Enter = function()
-						return "Pong"
-					end },
-					Pong = { Enter = function()
-						return "Ping"
-					end },
+					Ping = {
+						Enter = function()
+							return "Pong"
+						end,
+					},
+					Pong = {
+						Enter = function()
+							return "Ping"
+						end,
+					},
 				},
 			})
 			expect(m:State() == "Ping" or m:State() == "Pong").toBe(true)
@@ -180,9 +194,11 @@ return function(t)
 			machine({
 				Initial = "Idle",
 				Tick = 0.1,
-				States = { Idle = { Update = function()
-					count += 1
-				end } },
+				States = { Idle = {
+					Update = function()
+						count += 1
+					end,
+				} },
 			})
 			task.wait(1.05)
 			-- About 10; the first tick lands anywhere in the first 0.1 seconds.
@@ -194,9 +210,11 @@ return function(t)
 			local m = machine({
 				Initial = "Idle",
 				Tick = 0.05,
-				States = { Idle = { Update = function()
-					count += 1
-				end } },
+				States = { Idle = {
+					Update = function()
+						count += 1
+					end,
+				} },
 			})
 			task.wait(0.3)
 			m:Stop()
@@ -213,9 +231,11 @@ return function(t)
 				many[index] = machine({
 					Initial = "Idle",
 					Tick = 0.1,
-					States = { Idle = { Update = function()
-						count += 1
-					end } },
+					States = { Idle = {
+						Update = function()
+							count += 1
+						end,
+					} },
 				})
 			end
 			task.wait(1.05)

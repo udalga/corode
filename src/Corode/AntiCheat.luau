@@ -165,7 +165,7 @@ local function setback(player: Player, tracker: Tracker)
 	tracker.FastSamples = 0
 end
 
-local function passedThroughWall(player: Player, from: Vector3, to: Vector3): BasePart?
+local function passedThroughWall(_player: Player, from: Vector3, to: Vector3): BasePart?
 	local direction = to - from
 	if direction.Magnitude < 1 then
 		return nil
