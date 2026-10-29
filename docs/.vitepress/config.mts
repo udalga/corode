@@ -90,6 +90,6 @@ export default defineConfig({
     outline: { level: [2, 3], label: 'On this page' },
     search: { provider: 'local' },
     docFooter: { prev: 'Previous', next: 'Next' },
-    footer: { message: 'Corode 0.10.0' },
+    footer: { message: 'Corode 0.11.0 · MIT License' },
   },
 })

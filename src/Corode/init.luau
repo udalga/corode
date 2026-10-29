@@ -75,7 +75,7 @@ local IS_SERVER = RunService:IsServer()
 local START_REMINDER_DELAY = 10
 
 local Corode = {
-	Version = "0.10.0",
+	Version = "0.11.0",
 
 	Action = Action,
 	Admin = Admin,

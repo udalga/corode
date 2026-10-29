@@ -30,3 +30,7 @@ rojo build default.project.json -o Corode.rbxm
 ## Develop
 
 See [Working on Corode](https://udalga.github.io/corode/reference/contributing) for the Rojo setup and the layout of this repository.
+
+## License
+
+[MIT](LICENSE). See the [changelog](CHANGELOG.md) for what's new.

@@ -1,6 +1,7 @@
 {
   "name": "corode-docs",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "docs:api": "node scripts/gen-api.mjs",
