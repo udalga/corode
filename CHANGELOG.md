@@ -34,6 +34,7 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 
 - `K.Rewards` and `K.Stats` get their Before, After, Use, Middleware and Override as real fields, so they're typed.
 - Every connection Corode returns has `Connected`, `Disconnect` and `Destroy`. On clients, `K.Currency.OnChanged` and `K.Stats.OnChanged` returned a Roblox connection without `Destroy`; values and `K.Rounds.OnStateChanged` returned one without `Destroy` or `Connected`.
+- Trove finds an object's `Destroy`, `Disconnect`, `Cancel` or `Stop` by reading the table and its metatable `__index` chain instead of indexing it inside `pcall`, so Corode's strict objects no longer build an error message for every missing method. Objects whose methods only come from an `__index` function need a cleanup function instead.
 - Respawning uses `LoadCharacterAsync`, since `LoadCharacter` is deprecated.
 - Damage numbers (unreliable), knockback, client attacks and `Replicate = "Owner"` values are sent as packets. A damage number costs about 21.5 bytes instead of 33.
 

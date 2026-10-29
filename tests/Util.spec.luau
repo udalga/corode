@@ -215,5 +215,39 @@ return function(t)
 				part.Parent = workspace
 			end).toThrow()
 		end)
+
+		it("finds cleanup methods on objects, classes and strict objects", function()
+			local calls = {}
+			-- A class with inheritance, the usual Luau OOP shape.
+			local Base = {}
+			Base.__index = Base
+			function Base.Destroy()
+				table.insert(calls, "inherited Destroy")
+			end
+			local Class = setmetatable({}, Base)
+			Class.__index = Class
+			-- A Corode object: raises on missing members, and has Stop but no Destroy.
+			local strict = setmetatable({
+				Stop = function()
+					table.insert(calls, "Stop")
+				end,
+			}, {
+				__index = function(_, key)
+					error(`no member {key}`)
+				end,
+			})
+
+			local trove = K.Trove.new()
+			trove:Add({
+				Disconnect = function()
+					table.insert(calls, "plain Disconnect")
+				end,
+			})
+			trove:Add(setmetatable({}, Class))
+			trove:Add(strict)
+			trove:Add(K.Signal.new():Connect(function() end))
+			trove:Clean()
+			expect(calls).toEqual({ "Stop", "inherited Destroy", "plain Disconnect" })
+		end)
 	end)
 end

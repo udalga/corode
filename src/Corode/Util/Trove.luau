@@ -38,13 +38,25 @@ function Trove.Connect(self: TroveData, signal: RBXScriptSignal, callback: (...a
 	return Trove.Add(self, signal:Connect(callback))
 end
 
--- Reads a method without erroring: Corode's own objects (like When chains) raise
--- a helpful error when a missing member is read.
-local function method(item: any, name: string): ((any) -> ())?
-	local ok, value = pcall(function()
-		return item[name]
-	end)
-	return if ok and type(value) == "function" then value else nil
+-- Finds a method without indexing the object, since Corode's own objects (like
+-- When chains) raise on a missing member: reads the table itself, then the
+-- __index tables of its class chain. An __index function isn't called; for an
+-- object whose methods only come from one, add a function that cleans it instead.
+local function method(item: { [any]: any }, name: string): ((any) -> ())?
+	local current: any = item
+	for _ = 1, 10 do
+		local value = rawget(current, name)
+		if value ~= nil then
+			return if type(value) == "function" then value else nil
+		end
+		local meta = getmetatable(current)
+		local index = if type(meta) == "table" then rawget(meta, "__index") else nil
+		if type(index) ~= "table" then
+			return nil
+		end
+		current = index
+	end
+	return nil
 end
 
 local function cleanup(item: any)
