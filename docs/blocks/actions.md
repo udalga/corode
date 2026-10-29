@@ -1,6 +1,6 @@
 # Actions and Hooks
 
-Almost every system has things players ask the server to do: buy, upgrade, equip, vote, open. An **action** is one of those requests with the safety checks already done. **Hooks** let you, or anyone else, add rules to it later without touching its code.
+Almost every system has things players ask the server to do: buy, upgrade, equip, vote, open. An **action** is one of those requests, and Corode runs the checks every request needs before your function does. **Hooks** let you, or anyone else, add rules to it later without touching its code.
 
 ## Your first action
 
@@ -26,7 +26,7 @@ local ok, result = K.Action.Call("Upgrade", "Sword")
 K.Say(result)    -- "Upgraded your Sword!" or why it didn't work
 ```
 
-Without writing any checks yourself:
+What Corode checks before and after your function runs:
 
 - Arguments must match `Args` (types like [Guard](../reference/utilities#guard)); anything else is refused before your function runs. Without `Args`, only plain values are allowed.
 - Each player can call it `RateLimit` times per second (5 by default).

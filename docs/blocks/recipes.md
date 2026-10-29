@@ -1,6 +1,6 @@
 # Recipes
 
-Small, complete systems built only from the [building blocks](./values). Copy one, then change it: that's the point of building with blocks instead of using a ready-made system.
+Small, complete systems built only from the [building blocks](./values). Each one shows how the blocks fit together. Copy one and change it to fit your game.
 
 ## Levels from XP
 

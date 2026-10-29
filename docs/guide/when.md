@@ -1,6 +1,6 @@
 # When
 
-`K.When` reads like a sentence: an event, then actions that run in order for the player who caused it; when an action fails (Take without enough coins), the rest are skipped.
+`K.When` connects an event to a chain of actions: an event, then actions that run in order for the player who caused it; when an action fails (Take without enough coins), the rest are skipped.
 
 ```lua
 K.When(workspace.Shop).Triggered({ ActionText = "Buy sword", ObjectText = "50 Coins" })

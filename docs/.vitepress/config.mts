@@ -4,7 +4,7 @@ import apiSidebar from './api-sidebar.json'
 
 export default defineConfig({
   title: 'Corode',
-  description: 'One Roblox framework for currencies, items, combat, NPCs, quests, shops, UI and more.',
+  description: 'Documentation for Corode, a Luau library for building Roblox game systems.',
   lang: 'en-US',
   // Served from https://udalga.github.io/corode/
   base: '/corode/',

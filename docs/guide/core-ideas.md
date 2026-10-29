@@ -12,7 +12,7 @@ The server decides and the client asks: anything that changes the game (money, i
 
 Shared systems take the player on the server and use your own player on the client: `K.Currency.Get(player, "Coins")` on the server, `K.Currency.Get("Coins")` in a LocalScript. Calling a server-only function from the client raises an error that says where to move the code.
 
-**Hooks: customize any operation.** Currency, Inventory, Combat and Quests run every operation through the same pipeline, so you can change or stop it:
+**Hooks.** Currency, Inventory, Combat and Quests run every operation through the same pipeline, so you can change or stop it:
 
 ```lua
 K.Currency.Before("Add", function(ctx)        -- runs first; change ctx or cancel
@@ -39,7 +39,7 @@ end)
 
 Operations: Currency `Add` `Take` `Set` · Inventory `Add` `Remove` `Use` `Move` · Combat `Damage` `Heal` · Quests `Start` `Complete`. Higher priority runs first; every hook returns a function that removes it.
 
-**Errors that teach.** Mistakes point at your own line and suggest the fix:
+**Error messages.** A mistake is reported at the line in your script that caused it, with a suggested fix:
 
 ```text
 ServerScriptService.Main:12: [Corode] Currency "Coinz" doesn't exist.

@@ -9,7 +9,7 @@ Version 0.x. It's tested in Studio, including two-player servers, but hasn't run
 1. Download **Corode.rbxm** from the [latest release](https://github.com/udalga/corode/releases/latest).
 2. In Studio, drag the file onto **ReplicatedStorage** in the Explorer (or right-click ReplicatedStorage → *Insert from File*).
 
-That's all. Corode starts its client side on every player's device by itself.
+No other setup is needed: Corode starts its client side on every player's device by itself.
 
 To save player data while testing in Studio, turn on Game Settings → Security → *Enable Studio Access to API Services* (the place must be published). Without it, data lives in memory and the Output says so.
 
@@ -38,7 +38,7 @@ K.When.PlayerJoins():Say("Welcome, {player}!")
 K.Start()   -- once, after everything is defined
 ```
 
-Press Play. Coins are saved, shown on the player list, and can't be faked by exploiters: only the server changes them.
+Press Play and touch a coin. The coins are saved and shown on the player list. Only the server changes them, so a client can't fake its own amount (see [Core ideas](./core-ideas)).
 
 ## 3. Show it on screen
 
