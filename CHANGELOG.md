@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 (2026-10-29)
+
+Fixes from a scale audit aimed at bigger games, machines that keep time, and two-player tests.
 
 ### Changed
 
