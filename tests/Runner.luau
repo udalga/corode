@@ -15,7 +15,8 @@
 			end)
 		end
 
-	API: describe, it, beforeEach, afterEach, expect, skip(reason).
+	API: describe, it(name, body, timeout?), beforeEach, afterEach, expect, skip(reason).
+	A test fails if it takes longer than its timeout (10 seconds by default).
 	expect(value): toBe, toEqual, toBeNil, toBeTruthy, toBeFalsy, toContain,
 	toBeCloseTo, toThrow(text?), and .never for the opposite of each.
 ]]
@@ -130,7 +131,8 @@ local function expect(actual: any)
 end
 
 -- Runs fn in its own thread so a test that yields forever can't stop the run.
-local function runWithTimeout(fn: () -> ()): (boolean, string?)
+local function runWithTimeout(fn: () -> (), timeout: number?): (boolean, string?)
+	local limit = timeout or TEST_TIMEOUT
 	local finished, ok, problem = false, true, nil
 	task.spawn(function()
 		ok, problem = xpcall(fn, function(message)
@@ -146,8 +148,8 @@ local function runWithTimeout(fn: () -> ()): (boolean, string?)
 	end)
 	local started = os.clock()
 	while not finished do
-		if os.clock() - started > TEST_TIMEOUT then
-			return false, `Timed out after {TEST_TIMEOUT} seconds`
+		if os.clock() - started > limit then
+			return false, `Timed out after {limit} seconds`
 		end
 		task.wait()
 	end
@@ -165,8 +167,8 @@ local function collect(spec: ModuleScript)
 		body()
 		current = group.Parent
 	end
-	function api.it(name: string, body: () -> ())
-		table.insert(current.Tests, { Name = name, Body = body })
+	function api.it(name: string, body: () -> (), timeout: number?)
+		table.insert(current.Tests, { Name = name, Body = body, Timeout = timeout })
 	end
 	function api.beforeEach(body: () -> ())
 		table.insert(current.BeforeEach, body)
@@ -210,7 +212,7 @@ local function runGroup(group, path: { string }, before: { any }, after: { any }
 				hook()
 			end
 			test.Body()
-		end)
+		end, test.Timeout)
 		-- After hooks run even when the test failed, so cleanup always happens.
 		for _, hook in hooksAfter do
 			local hookOk, hookProblem = runWithTimeout(hook)

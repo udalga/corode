@@ -8,6 +8,8 @@ What Corode does to stay inside Roblox's limits in big games, what a scale audit
 
 **Many objects.** NPC brains and every [K.Machine](../blocks/machines) run from shared loops, not a thread each. 20,000 machines in one server kept their exact tick rate and didn't change frame times.
 
+**Packets.** For messages sent many times a second, use [K.Net.Packet](./utilities#packets): typed data packed into bytes, one event per frame, about a third smaller than a RemoteEvent in Corode's test, and checked against its schema on the server. Corode's damage numbers, knockback and `Replicate = "Owner"` values already use them.
+
 **Network traffic.** Values set as attributes on a player reach **every** client. That's what you want for things others see (coins on the leaderboard), but a value that changes often for each of 100 players means 100 × 100 updates. For values only the player needs, use:
 
 ```lua

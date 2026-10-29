@@ -22,7 +22,7 @@ const MODULES = [
 // Tables whose functions are methods on objects a module hands out.
 const METHOD_OWNERS = {
   Chain: 'chain', ActionMethods: 'action', ServerMethods: 'inventory', ClientMethods: 'inventory',
-  NpcMethods: 'npc', Handle: 'handle', Signal: 'signal', Trove: 'trove',
+  NpcMethods: 'npc', Handle: 'handle', Signal: 'signal', Trove: 'trove', PacketMethods: 'packet',
 }
 
 // Method tables whose meaning depends on the module they're in.

@@ -24,6 +24,62 @@ local price = K.Net.Ask("GetPrice", "Sword")
 
 Only the server creates remotes. Each player is rate limited per event (`{ RateLimit = 5 }` as an option; 20 calls per second by default, set with `NetRateLimit`). Arguments are checked against the types you list, or a strict basic check when you list none, before your function runs. Errors in your server functions are logged on the server and never sent to clients.
 
+### Packets
+
+For messages sent often (hits, effects, positions), a packet sends typed data packed into bytes, and everything fired in one frame goes out as one event. Define it once in a ModuleScript both the server and clients require:
+
+```lua
+-- ReplicatedStorage.Packets (a ModuleScript)
+local K = require(game.ReplicatedStorage.Corode)
+
+return {
+	Hit = K.Net.Packet("Hit", {
+		Position = K.Net.Vector3,
+		Damage = K.Net.U16,
+		Critical = K.Net.Bool,
+	}, { Reliable = false }),
+	Dash = K.Net.Packet("Dash", { Direction = K.Net.Vector3 }, { RateLimit = 5 }),
+}
+```
+
+```lua
+-- Server Script
+local Packets = require(game.ReplicatedStorage.Packets)
+Packets.Hit:FireAll({ Position = part.Position, Damage = 25, Critical = false })
+Packets.Hit:Fire(player, { Position = part.Position, Damage = 25, Critical = true })
+Packets.Dash:On(function(player, dash) end)
+
+-- LocalScript
+Packets.Hit:On(function(hit) print(hit.Damage) end)
+Packets.Dash:Fire({ Direction = Vector3.xAxis })
+```
+
+| Type | What it holds | Bytes |
+| --- | --- | --- |
+| `U8`, `U16`, `U32` | Whole numbers from 0 to 255, 65,535, 4,294,967,295 | 1, 2, 4 |
+| `I8`, `I16`, `I32` | Whole numbers around 0 | 1, 2, 4 |
+| `F32`, `F64` (or `Number`) | Numbers with about 7 digits, or any number | 4, 8 |
+| `Bool` | true or false | 1 |
+| `String`, `String(max)` | Text up to 1000 bytes, or `max` | 2 + length |
+| `Primitive` | A number, text or true/false | 1 + the value |
+| `Vector3`, `Vector2`, `CFrame`, `Color3` | Positions and rotations (to about 7 digits), colors (0-255 each) | 12, 8, 24, 3 |
+| `Instance`, `Instance("BasePart")` | An object (sent next to the bytes) | 2 |
+| `Enum({ "Fire", "Ice" })` | One text from a fixed list | 1 |
+| `Optional(type)` | The type, or nil | 1 + the value |
+| `Array(type, max?)`, `Map(key, value, max?)` | Lists and tables, up to 1000 items unless you say | 2 + the items |
+| `{ Field = type, ... }` | A table with these fields; tables inside work too | the fields |
+| nothing: `K.Net.Packet("Ping")` | No data | 0 |
+
+Each packet adds 3 bytes on top of its data. In a test sending five damage numbers a frame (a `Vector3`, a `U32` and a `Bool`), a packet cost about 21.5 bytes per message against 33 for a RemoteEvent with the same values, about a third less; the more you send per frame, the more batching saves. Run it yourself with `tests/Bandwidth.spec.luau`.
+
+**Reliable or not.** Packets are reliable by default: they always arrive, in order. With `Reliable = false` they may be dropped, which suits effects that don't matter a moment later, like damage numbers.
+
+**What the server checks.** Every packet a client sends is read against its schema: a value of the wrong type, a list over its limit, text that isn't UTF-8 or a number that isn't finite drops the packet before your function runs. Each player is rate limited per packet (`RateLimit`, 20 per second by default), and refused packets fire `K.Net.Rejected` like events do. The server checks what it sends too: `Hit:Fire(player, { Damage = 300 })` with a `U8` raises an error that names the field.
+
+**Both sides must match.** Define each packet with the same fields on both sides (a shared ModuleScript does that); a client whose definition differs ignores the packet and says so in the Output. Packets that arrive before a client defines or listens to them wait until it does.
+
+Corode's own damage numbers, knockback, client attacks and `Replicate = "Owner"` values are packets.
+
 ## Guard
 
 Checks values you don't control, mostly arguments sent by players.

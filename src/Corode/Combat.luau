@@ -50,9 +50,6 @@ local Stats = require(script.Parent.Stats)
 local Timing = require(script.Parent.Timing)
 
 local IS_SERVER = RunService:IsServer()
-local ATTACK_EVENT = "CorodeAttack"
-local HIT_EVENT = "CorodeHit"
-local KNOCKBACK_EVENT = "CorodeKnockback"
 local DEFAULT_DAMAGE = 10
 local MAX_KNOCKBACK = 300
 local MAX_AIM_DISTANCE = 1000
@@ -60,6 +57,8 @@ local DAMAGE_NUMBER_RANGE = 150
 -- How long the server holds an NPC's physics after knocking it back.
 local KNOCKBACK_OWNERSHIP_TIME = 0.6
 local CLIENT_RATE_LIMIT = 15
+-- Damage numbers show at most this much.
+local MAX_SHOWN_DAMAGE = 4294967295
 local OPERATIONS = { "Damage", "Heal" }
 local ATTACK_OPTIONS = {
 	Damage = "number|function",
@@ -108,6 +107,15 @@ export type Context = {
 	Reason: string?,
 	[string]: any,
 }
+
+-- Damage numbers: sent to everyone, and fine to lose.
+local HitPacket = Net.Packet("CorodeHit", { Position = Net.Vector3, Amount = Net.U32, Critical = Net.Bool }, { Reliable = false })
+local KnockbackPacket = Net.Packet("CorodeKnockback", Net.Vector3)
+local AttackPacket = Net.Packet(
+	"CorodeAttack",
+	{ Name = Net.String(50), Aim = Net.Optional(Net.Vector3) },
+	{ RateLimit = CLIENT_RATE_LIMIT }
+)
 
 local Combat = {}
 
@@ -228,7 +236,11 @@ local function damageCore(ctx: Pipeline.Context): boolean
 
 	local root = humanoid.RootPart
 	if Combat.Settings.DamageNumbers and root and amount >= 0.5 then
-		Net.FireAll(HIT_EVENT, root.Position, math.floor(amount + 0.5), ctx.Critical == true)
+		HitPacket:FireAll({
+			Position = root.Position,
+			Amount = math.min(math.floor(amount + 0.5), MAX_SHOWN_DAMAGE),
+			Critical = ctx.Critical == true,
+		})
 	end
 	return true
 end
@@ -289,7 +301,7 @@ local function knockback(target: Instance, direction: Vector3, force: number)
 	if target:IsA("Player") then
 		-- A player's character moves on their own device, so their client applies it.
 		PlayersModule.AllowMovement(target :: Player, 1)
-		Net.Fire(target, KNOCKBACK_EVENT, velocity)
+		KnockbackPacket:Fire(target, velocity)
 		return
 	end
 	-- Nearby players are often simulating an NPC, which would undo a velocity set
@@ -558,7 +570,7 @@ function Combat.Use(...: any): { Instance }?
 		if aim ~= nil then
 			Errors.expect(aim, "Vector3", "the aim position", "K.Combat.Use")
 		end
-		Net.Fire(ATTACK_EVENT, name, aim)
+		AttackPacket:Fire({ Name = name, Aim = aim })
 		return nil
 	end
 	local attacker, name, aim = ...
@@ -646,13 +658,11 @@ end
 
 -- Client: started automatically when Corode loads on a player's device.
 function Combat._listen()
-	Net.On(HIT_EVENT, function(position, amount, critical)
-		if typeof(position) == "Vector3" and isFinite(amount) then
-			showDamageNumber(position, amount, critical == true)
-		end
+	HitPacket:On(function(hit)
+		showDamageNumber(hit.Position, hit.Amount, hit.Critical)
 	end)
-	Net.On(KNOCKBACK_EVENT, function(velocity)
-		if typeof(velocity) ~= "Vector3" or velocity.Magnitude > MAX_KNOCKBACK * 2 or velocity.Magnitude ~= velocity.Magnitude then
+	KnockbackPacket:On(function(velocity: Vector3)
+		if velocity.Magnitude > MAX_KNOCKBACK * 2 then
 			return
 		end
 		local character = Players.LocalPlayer.Character
@@ -666,26 +676,20 @@ function Combat._listen()
 end
 
 if IS_SERVER then
-	Net.Declare(HIT_EVENT)
-	Net.Declare(KNOCKBACK_EVENT)
-	Net.On(
-		ATTACK_EVENT,
-		{ Guard.String({ Max = 50 }), Guard.Optional(Guard.Vector3()) },
-		function(player: Player, name: string, aim: Vector3?)
-			local attack = attacks[name]
-			if attack == nil or not attack.Client or not PlayersModule.IsReady(player) then
-				return
-			end
-			local owner, humanoid, character = resolve(player)
-			local root = humanoid and humanoid.RootPart
-			-- Ignore aims that are absurdly far away.
-			if aim and (root == nil or (aim - root.Position).Magnitude > MAX_AIM_DISTANCE) then
-				aim = nil
-			end
-			perform(owner :: Instance, humanoid, character, attack, aim)
-		end,
-		{ RateLimit = CLIENT_RATE_LIMIT }
-	)
+	AttackPacket:On(function(player: Player, request)
+		local attack = attacks[request.Name]
+		if attack == nil or not attack.Client or not PlayersModule.IsReady(player) then
+			return
+		end
+		local owner, humanoid, character = resolve(player)
+		local root = humanoid and humanoid.RootPart
+		-- Ignore aims that are absurdly far away.
+		local aim: Vector3? = request.Aim
+		if aim and (root == nil or (aim - root.Position).Magnitude > MAX_AIM_DISTANCE) then
+			aim = nil
+		end
+		perform(owner :: Instance, humanoid, character, attack, aim)
+	end)
 end
 
 return Errors.strict(Combat, "K.Combat")

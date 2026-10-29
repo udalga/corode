@@ -12,6 +12,7 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 - When events are typed for both `K.When(part).Touched()` and `K.When(part):Touched()`, with their options.
 - Corode exports its main types for your own annotations: `Corode.Value<T>`, `Corode.Machine`, `Corode.Chain`, `Corode.Inventory`, `Corode.NPC`, the ctx types and more.
 - A Wally package: `Corode = "udalga/corode@0.13.0"`.
+- `K.Net.Packet(name, schema, options?)`: typed data packed into bytes, with everything fired in one frame sent as one event. The server reads every packet a client sends against its schema and rate limit before your function runs. Types: U8 to U32, I8 to I32, F32, F64, Bool, String, Primitive, Vector3, Vector2, CFrame, Color3, Instance, Enum, Optional, Array, Map and tables of fields. Unreliable packets (`Reliable = false`) are split to fit Roblox's size limit.
 - `K.Data.Start()` starts Data on its own, for games that use only Data.
 - A Types and packages page, including which modules work without the rest of Corode.
 
@@ -20,12 +21,15 @@ Strict types everywhere, a Wally package, and modules you can use on their own.
 - `K.Rewards` and `K.Stats` get their Before, After, Use, Middleware and Override as real fields, so they're typed.
 - Every connection Corode returns has `Connected`, `Disconnect` and `Destroy`. On clients, `K.Currency.OnChanged` and `K.Stats.OnChanged` returned a Roblox connection without `Destroy`; values and `K.Rounds.OnStateChanged` returned one without `Destroy` or `Connected`.
 - Respawning uses `LoadCharacterAsync`, since `LoadCharacter` is deprecated.
+- Damage numbers (unreliable), knockback, client attacks and `Replicate = "Owner"` values are sent as packets. A damage number costs about 21.5 bytes instead of 33.
 
 ### Project
 
 - CI type checks the source with luau-lsp, checks formatting with StyLua and lints with selene on every push; a release needs all three to pass.
 - Fewer reports from Roblox's new type solver (beta): returns and options it read differently are now explicit.
-- Tests for modules required on their own.
+- Tests for modules required on their own, and for packets: every type, bytes that are cut short or forged, rate limits and refusals.
+- Tests can set their own timeout: `t.it(name, body, seconds)`.
+- `tests/Bandwidth.spec.luau` measures what a RemoteEvent and a packet cost to send.
 
 ## 0.12.0 (2026-10-29)
 

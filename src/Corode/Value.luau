@@ -56,7 +56,6 @@ local IS_SERVER = RunService:IsServer()
 local READY_ATTRIBUTE = "CorodeReady"
 -- Owner-only values go to their player through this event; a constant marker
 -- attribute tells clients the value exists without sending it to everyone.
-local OWNER_EVENT = "CorodeValueOwner"
 local OWNER_MARKER = "CorodeOwnerOnly_"
 local NAME_PATTERN = "^%a[%w_]*$"
 local MAX_NAME_LENGTH = 40
@@ -169,6 +168,10 @@ export type Value<T = any> = {
 	Override: (self: Value<T>, operation: string, callback: (ValueContext<T>) -> boolean?) -> (),
 }
 
+-- Values with Replicate = "Owner" go only to their player, as this packet.
+local OwnerPacket =
+	Net.Packet("CorodeValueOwner", { Family = Net.String(MAX_NAME_LENGTH), Name = Net.String(MAX_NAME_LENGTH), Value = Net.Primitive })
+
 local Value = {}
 
 local families: { Family } = {}
@@ -247,7 +250,7 @@ local function publish(player: Player, handle: Handle, value: any)
 	if replicate == true then
 		player:SetAttribute(handle._family.Prefix .. handle.Name, value)
 	elseif replicate == "Owner" then
-		Net.Fire(player, OWNER_EVENT, handle._family.Label, handle.Name, value)
+		OwnerPacket:Fire(player, { Family = handle._family.Label, Name = handle.Name, Value = value })
 	end
 end
 
@@ -772,15 +775,10 @@ function Value._playerRemoved(player: Player)
 	readyPlayers[player] = nil
 end
 
-if IS_SERVER then
-	Net.Declare(OWNER_EVENT)
-else
-	Net.On(OWNER_EVENT, function(label, name, value)
-		if type(label) ~= "string" or type(name) ~= "string" then
-			return
-		end
-		local key = `{label}:{name}`
-		ownerValues[key] = value
+if not IS_SERVER then
+	OwnerPacket:On(function(update)
+		local key = `{update.Family}:{update.Name}`
+		ownerValues[key] = update.Value
 		ownerChanged:Fire(key)
 	end)
 end
