@@ -7,7 +7,7 @@ Rounds is a [Machine](../blocks/machines) with four states: Waiting, Intermissio
 ## A complete round game
 
 ```lua
--- ServerScriptService (a Script)
+-- Server
 local K = require(game.ReplicatedStorage.Corode)
 
 K.Currency.Define("Coins")
@@ -107,7 +107,7 @@ K.Rounds.Eliminated:Connect(function(player, reason) end)   -- "Died", "Left" or
 LocalScripts can read the round too. `K.UI.FromRound()` is a State that updates on its own:
 
 ```lua
--- StarterPlayerScripts (a LocalScript)
+-- Client
 local K = require(game.ReplicatedStorage:WaitForChild("Corode"))
 local round = K.UI.FromRound()
 

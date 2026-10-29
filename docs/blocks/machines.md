@@ -5,7 +5,7 @@ A machine is always in one **state**, and you decide what each state does and wh
 ## A round loop with a map vote
 
 ```lua
--- ServerScriptService (a Script)
+-- Server
 local Game = K.Machine("Game", {
 	Initial = "Lobby",
 	States = {

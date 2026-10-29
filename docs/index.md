@@ -7,68 +7,61 @@ hero:
   image:
     src: /logo.png
     alt: Corode
-  tagline: Learn how to build Roblox game systems with Corode, from your first script to systems of your own.
+  tagline: A server-authoritative Luau framework for Roblox game systems. Typed, hookable, and usable in parts.
   actions:
     - theme: brand
-      text: Getting started
+      text: Quick start
       link: /guide/getting-started
     - theme: alt
-      text: Core ideas
+      text: Architecture
       link: /guide/core-ideas
 
 features:
-  - title: 1. Getting started
-    details: Install Corode, write a first script with coins and lava, show a value on screen and handle a request from a button.
-    link: /guide/getting-started
-    linkText: Start here
-  - title: 2. Core ideas
-    details: Which code runs on the server and which on the client, how hooks change an operation, how to read error messages, and the settings.
-    link: /guide/core-ideas
-    linkText: Read
-  - title: 3. Building blocks
-    details: Values, actions, hooks, tags, shared values, timers and machines. The small pieces every system in this guide is made of.
+  - title: Building blocks
+    details: Per-player values, shared values, timers, state machines, actions, hooks and tags. The primitives the systems are built from.
     link: /blocks/values
-    linkText: Read
-  - title: 4. Systems
-    details: Currencies, items, combat, NPCs, quests, rounds and shops, how each one works and how to change it.
+    linkText: Values
+  - title: Systems
+    details: Currency, inventory, stats and combat, NPCs, quests, rounds, shop, global leaderboards, anti-cheat, admin, analytics, UI.
     link: /systems/currency-data
-    linkText: Read
+    linkText: Currency and Data
+  - title: Data
+    details: Session-locked saves with retries, migrations, per-part validation, and a last save that keeps retrying instead of dropping changes.
+    link: /systems/currency-data
+    linkText: Data
+  - title: Networking
+    details: Typed remotes with rate limits, and buffer-packed packets batched per frame, validated against their schema on the server.
+    link: /reference/utilities#packets
+    linkText: Packets
 ---
-
-## What Corode is
-
-Corode is a Luau library you put in ReplicatedStorage and require from your scripts. It has three parts:
-
-| Layer | What it gives you | Example |
-| --- | --- | --- |
-| **Building blocks** | Small pieces for keeping data and reacting to events: values, actions, hooks, tags, timers, machines | `K.Value("XP", { Default = 0 })` |
-| **Systems** | Common game features built from those blocks: currencies, inventories, combat, NPCs, quests, rounds, shops | `K.Currency.Add(player, "Coins", 10)` |
-| **When** | A short way to connect an event to a list of actions | `K.When(part).Touched():Give("Coins", 5)` |
-
-A first script uses all three:
 
 ```lua
 local K = require(game.ReplicatedStorage.Corode)
 
-K.Currency.Define("Coins")        -- a system
-K.Leaderstats.Show("Coins")
+local XP = K.Value("XP", { Default = 0, Min = 0 })      -- Value<number>, saved, replicated
+K.Currency.Define("Coins")
 
-K.When(workspace.Coin).Touched():Give("Coins", 5):Hide(3)   -- When
-K.When(workspace.Lava).Touched():Kill()
+K.Currency.Before("Add", function(ctx)                  -- every system's operations are hookable
+	if ctx.Source == "Quest" then
+		ctx.Amount *= 2
+	end
+end)
 
-K.Start()                         -- once, after everything is defined
+K.Tag("Coin", function(part)                            -- CollectionService, with cleanup
+	return K.When(part).Touched():Give("Coins", 5):Hide(3)
+end)
+
+K.Start()
 ```
 
-[Getting started](./guide/getting-started) explains each line.
+| | |
+| --- | --- |
+| **Authority** | State changes happen on the server; clients read replicated state and send requests that are type-checked and rate limited. See [Architecture](./guide/core-ideas). |
+| **Types** | Every module is `--!strict`. Values are typed by their Default, hook `ctx` tables per system. See [Types and packages](./reference/types-packages). |
+| **Install** | `Corode.rbxm` from the [releases](https://github.com/udalga/corode/releases/latest), or Wally: `udalga/corode`. |
+| **In parts** | Machine, Shared, Hooks, Tag, Net, Data and the utilities work without the rest. |
+| **API** | Every function, generated from the source: [API reference](./api/). |
 
-## How to use this guide
-
-- **New to Corode:** read [Getting started](./guide/getting-started), then [Core ideas](./guide/core-ideas).
-- **Building your own system:** start with [Values](./blocks/values) and [Actions and Hooks](./blocks/actions), then look at the [Recipes](./blocks/recipes).
-- **Using a ready-made system:** open its page under **Systems**. [Customizing systems](./blocks/customizing) shows how to change one without editing it.
-- **Looking up a function:** the [API reference](./api/) lists every module and function, generated from the source.
-- **Before publishing a game:** read the [Security checklist](./reference/security) and [Running at scale](./reference/scaling).
-
-::: info Version
-Corode is in beta (0.x). It's tested in Studio, including servers with several players, but hasn't been used in a large live game yet, so some functions may still change between versions. The [changelog](https://github.com/udalga/corode/blob/main/CHANGELOG.md) lists every change.
+::: info Beta
+0.x: tested in Studio including multi-player servers, not yet in a large live game. APIs may still change; the [changelog](https://github.com/udalga/corode/blob/main/CHANGELOG.md) lists every change.
 :::

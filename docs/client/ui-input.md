@@ -4,7 +4,7 @@ Both work in LocalScripts only.
 
 ## States
 
-A State is a value that tells everything using it when it changes. Any UI property can be a State, and it then updates by itself.
+States are reactive cells. `Computed` records which States it reads with `:Get()` and recomputes when any of them changes; `Peek()` reads without subscribing. Any UI property can be a State and is kept in sync. Derived States only subscribe to their sources while something observes them, so UI that is destroyed doesn't leak. Don't yield inside a `Computed`.
 
 ```lua
 local coins = K.UI.State(0)

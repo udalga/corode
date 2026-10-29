@@ -1,11 +1,9 @@
 # Actions and Hooks
 
-Almost every system has things players ask the server to do: buy, upgrade, equip, vote, open. An **action** is one of those requests, and Corode runs the checks every request needs before your function does. **Hooks** let you, or anyone else, add rules to it later without touching its code.
-
-## Your first action
+An **action** is a named client-to-server request with validation, rate limiting, a hook pipeline and a structured answer. Use one for anything a player asks the server to do: buy, upgrade, equip, vote. **Hooks** add rules to an action, or to any operation of your own, from anywhere.
 
 ```lua
--- ServerScriptService (a Script)
+-- Server
 local Level = K.Value("Level", { Default = 1, Min = 1, Max = 10, Integer = true })
 
 K.Action("Upgrade", { Args = { "string" } }, function(ctx, item)
@@ -21,17 +19,24 @@ end)
 ```
 
 ```lua
--- A LocalScript, for example a button's OnClick
-local ok, result = K.Action.Call("Upgrade", "Sword")
-K.Say(result)    -- "Upgraded your Sword!" or why it didn't work
+-- Client
+local ok, result = K.Action.Call("Upgrade", "Sword")   -- yields; (true, value) or (false, reason)
+K.Action.Fire("Upgrade", "Sword")                      -- doesn't wait
 ```
 
-What Corode checks before and after your function runs:
+A request from a client goes through, in order:
 
-- Arguments must match `Args` (types like [Guard](../reference/utilities#guard)); anything else is refused before your function runs. Without `Args`, only plain values are allowed.
-- Each player can call it `RateLimit` times per second (5 by default).
-- Players whose data hasn't loaded yet are turned away.
-- If your function errors, the player only sees "Something went wrong."; the details go to the server's Output.
+1. The per-player rate limit (`RateLimit`, 5 per second by default).
+2. Argument validation against `Args` ([Guard](../reference/utilities#guard) types). Without `Args`, only plain values pass. Refused requests fire `K.Net.Rejected`, which AntiCheat counts.
+3. A loaded-data check: players still loading get "Your data is still loading."
+4. The hook pipeline, with your function as the operation. `ctx` is `K.ActionContext`: `Player`, `Action`, `Args` (with `n`), `Source` (`"Client"` or `"Server"`), `Result`.
+5. The answer. If your function errors, the player gets "Something went wrong." and the error goes to the server Output, never to the client.
+
+| Options | Default | |
+| --- | --- | --- |
+| `Args` | none | Argument types, like `{ "string", K.Guard.Integer({ Min = 1 }) }` |
+| `RateLimit` | 5 | Calls per second per player |
+| `Client` | `true` | `false`: only server code can run it (`K.Action.Run`) |
 
 ## Answering the player
 
@@ -43,8 +48,6 @@ What Corode checks before and after your function runs:
 | errors | `false, "Something went wrong."` |
 | is refused (bad arguments, too many calls) or the server is too slow | `false, "That request didn't go through. Try again in a moment."` |
 
-`K.Action.Fire(name, ...)` sends the request without waiting for the answer.
-
 ## From server code and When
 
 ```lua
@@ -55,11 +58,9 @@ K.When(workspace.Anvil).Triggered():Action("Upgrade", "Sword")
 
 In a When chain, a failed action tells the player why and stops the chain.
 
-Use `{ Client = false }` for actions only your server code should run. Clients can't call them at all.
-
 ## Adding rules
 
-Every action has hooks. Rules can live anywhere, for example in a separate script for an event:
+Every action has the full hook pipeline, so rules can live in other scripts:
 
 ```lua
 local Upgrade = K.Action.Get("Upgrade")
@@ -83,11 +84,11 @@ Upgrade:Before(function(ctx)
 end)
 ```
 
-`ctx` holds `Player`, `Action` (the name), `Args`, `Source` (`"Client"` or `"Server"`), `Result`, `Reason` and `Cancel(reason)`. `Override(fn)` replaces the action's function.
+`Override(fn)` replaces the action's function; it receives `(ctx, ...args)`.
 
 ## Hooks for anything
 
-`K.Hooks` gives any operation of yours the same steps. It works in Scripts and LocalScripts:
+`K.Hooks(name, operation)` gives any operation of yours the same pipeline, on either side. `Run(ctx)` returns `(succeeded, ctx)`; see [Architecture](../guide/core-ideas#hooks) for the order and rules.
 
 ```lua
 local Equip = K.Hooks("Equip", function(ctx)
