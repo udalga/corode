@@ -31,8 +31,9 @@
 
 	Options: Default (0; a number, text or true/false, which sets the type),
 	Min and Max (numbers), Integer (false), Saved (true), Replicate (true: every
-	client can read it, like leaderstats), MaxLength (200, for text) and
-	Validate (function(value, player) -> ok, reason).
+	client can read it, like leaderstats; "Owner": only its own player, which saves
+	network traffic for values that change often in big servers; false: no client),
+	MaxLength (200, for text) and Validate (function(value, player) -> ok, reason).
 
 	ctx fields: Player, Value (the name), Amount (to add, take, or the new value
 	for Set), Source, Old, New, Cancel(reason), Commit(value).
@@ -47,10 +48,15 @@ local Errors = require(script.Parent.Util.Errors)
 local Guard = require(script.Parent.Util.Guard)
 local Methods = require(script.Parent.Util.Methods)
 local Pipeline = require(script.Parent.Util.Pipeline)
+local Net = require(script.Parent.Net)
 local Signal = require(script.Parent.Util.Signal)
 
 local IS_SERVER = RunService:IsServer()
 local READY_ATTRIBUTE = "CorodeReady"
+-- Owner-only values go to their player through this event; a constant marker
+-- attribute tells clients the value exists without sending it to everyone.
+local OWNER_EVENT = "CorodeValueOwner"
+local OWNER_MARKER = "CorodeOwnerOnly_"
 local NAME_PATTERN = "^%a[%w_]*$"
 local MAX_NAME_LENGTH = 40
 -- Above this, numbers lose precision.
@@ -63,7 +69,7 @@ local OPTIONS = {
 	Max = "number",
 	Integer = "boolean",
 	Saved = "boolean",
-	Replicate = "boolean",
+	Replicate = "boolean|string",
 	MaxLength = "number",
 	Validate = "function",
 }
@@ -76,7 +82,7 @@ export type Settings = {
 	Max: number,
 	Integer: boolean,
 	Saved: boolean,
-	Replicate: boolean,
+	Replicate: boolean | string,
 	MaxLength: number,
 	Validate: ((any, Player) -> (boolean, string?))?,
 }
@@ -166,6 +172,16 @@ local function normalize(settings: Settings, value: any): any
 	return math.clamp(value, settings.Min, settings.Max)
 end
 
+-- Sends a value to the clients that should see it.
+local function publish(player: Player, handle, value: any)
+	local replicate = handle._settings.Replicate
+	if replicate == true then
+		player:SetAttribute(handle._family.Prefix .. handle.Name, value)
+	elseif replicate == "Owner" then
+		Net.Fire(player, OWNER_EVENT, handle._family.Label, handle.Name, value)
+	end
+end
+
 local function read(player: Player, handle): any
 	local store = storeFor(player, handle._family, handle._settings)
 	local value = store and store[handle.Name]
@@ -180,9 +196,7 @@ local function write(player: Player, handle, value: any)
 	end
 	local old = read(player, handle)
 	store[handle.Name] = value
-	if handle._settings.Replicate then
-		player:SetAttribute(family.Prefix .. handle.Name, value)
-	end
+	publish(player, handle, value)
 	if value ~= old then
 		handle.Changed:Fire(player, value, old)
 		family.Changed:Fire(player, handle.Name, value, old)
@@ -201,9 +215,10 @@ local function initialize(player: Player, handle)
 	-- your rules may have changed since. Use K.Data.Migrate to fix old values.
 	local value = if saved ~= nil and accepts(settings, saved, nil) then normalize(settings, saved) else settings.Default
 	store[handle.Name] = value
-	if settings.Replicate then
-		player:SetAttribute(handle._family.Prefix .. handle.Name, value)
+	if settings.Replicate == "Owner" then
+		player:SetAttribute(OWNER_MARKER .. handle._family.Label .. "_" .. handle.Name, true)
 	end
+	publish(player, handle, value)
 end
 
 ------------------------------------------------------------------------------
@@ -428,9 +443,21 @@ ServerMethods.Middleware = ServerMethods.Use
 
 local ClientMethods = {}
 
+-- Clients: owner-only values sent to this player, by "Label:Name".
+local ownerValues: { [string]: any } = {}
+local ownerChanged = Signal.new()
+
+local function ownerKey(handle): string
+	return `{handle._family.Label}:{handle.Name}`
+end
+
 local function readAttribute(handle, player: Player): any
+	if player == Players.LocalPlayer and ownerValues[ownerKey(handle)] ~= nil then
+		return ownerValues[ownerKey(handle)]
+	end
 	local value = player:GetAttribute(handle._family.Prefix .. handle.Name)
-	if value == nil and player:GetAttribute(READY_ATTRIBUTE) then
+	local ownerOnly = player:GetAttribute(OWNER_MARKER .. handle._family.Label .. "_" .. handle.Name) ~= nil
+	if value == nil and not ownerOnly and player:GetAttribute(READY_ATTRIBUTE) then
 		Errors.warnOnce(`value-missing:{handle._family.Label}:{handle.Name}`, `{handle._family.Label} "{handle.Name}" doesn't reach clients.`, {
 			`Define it in a server Script (K.{handle._family.Label}("{handle.Name}", ...)), and don't set Replicate = false.`,
 		})
@@ -455,13 +482,32 @@ function ClientMethods.OnChanged(handle, callback: (any, any) -> ())
 	Errors.expect(callback, "function", "the callback", `{handle.Name}:OnChanged()`)
 	local player = Players.LocalPlayer
 	local attribute = handle._family.Prefix .. handle.Name
-	local last = player:GetAttribute(attribute)
-	return player:GetAttributeChangedSignal(attribute):Connect(function()
-		local new = player:GetAttribute(attribute)
-		local old = last
-		last = new
-		callback(new, old)
+	local key = ownerKey(handle)
+	local last = readAttribute(handle, player)
+	local function changed()
+		local new = readAttribute(handle, player)
+		if new ~= last then
+			local old = last
+			last = new
+			callback(new, old)
+		end
+	end
+	local attributeConnection = player:GetAttributeChangedSignal(attribute):Connect(changed)
+	local ownerConnection = ownerChanged:Connect(function(changedKey)
+		if changedKey == key then
+			changed()
+		end
 	end)
+	return {
+		Connected = true,
+		Disconnect = function(self)
+			attributeConnection:Disconnect()
+			ownerConnection:Disconnect()
+			if type(self) == "table" then
+				self.Connected = false
+			end
+		end,
+	}
 end
 
 for _, name in { "Set", "Add", "Take", "Has", "Before", "After", "Use", "Middleware", "Override" } do
@@ -500,7 +546,7 @@ local function buildSettings(name: string, options: { [string]: any }?, function
 		Max = given.Max or MAX_SAFE_INTEGER,
 		Integer = given.Integer == true,
 		Saved = given.Saved ~= false,
-		Replicate = given.Replicate ~= false,
+		Replicate = if given.Replicate == "Owner" then "Owner" else given.Replicate ~= false,
 		MaxLength = given.MaxLength or DEFAULT_MAX_LENGTH,
 		Validate = given.Validate,
 	}
@@ -513,6 +559,9 @@ local function buildSettings(name: string, options: { [string]: any }?, function
 		if not (settings.Min <= settings.Default and settings.Default <= settings.Max) then
 			Errors.raise(`{functionName}("{name}"): Default must be between Min and Max.`)
 		end
+	end
+	if type(given.Replicate) == "string" and given.Replicate ~= "Owner" then
+		Errors.raise(`{functionName}("{name}"): Replicate must be true, false or "Owner", but got {Errors.quote(given.Replicate)}.`)
 	end
 	if settings.MaxLength % 1 ~= 0 or settings.MaxLength < 1 then
 		Errors.raise(`{functionName}("{name}"): MaxLength must be a whole number of 1 or more.`)
@@ -642,6 +691,19 @@ end
 function Value._playerRemoved(player: Player)
 	unsaved[player] = nil
 	readyPlayers[player] = nil
+end
+
+if IS_SERVER then
+	Net.Declare(OWNER_EVENT)
+else
+	Net.On(OWNER_EVENT, function(label, name, value)
+		if type(label) ~= "string" or type(name) ~= "string" then
+			return
+		end
+		local key = `{label}:{name}`
+		ownerValues[key] = value
+		ownerChanged:Fire(key)
+	end)
 end
 
 local PUBLIC_NAMES = { "Define", "Get", "Exists", "Names", "Changed" }

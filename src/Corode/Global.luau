@@ -101,6 +101,8 @@ local boardNames: { string } = {}
 local boardStores: { [string]: any } = {}
 local earnedHooked = false
 local userNames: { [number]: string } = {}
+local userNameCount = 0
+local MAX_CACHED_NAMES = 2000
 local readyPlayers: { [Player]: boolean } = {}
 local clientTops: { [string]: { any } } = {}
 local clientTopChanged = Signal.new()
@@ -173,13 +175,25 @@ local function listen(topic: string)
 	topics[topic] = entry
 	if not localOnly then
 		task.spawn(function()
-			local ok, problem = pcall(function()
-				return game:GetService("MessagingService"):SubscribeAsync(topic, function(message)
-					deliver(topic, message.Data)
+			-- MessagingService fails now and then on live servers, so keep trying
+			-- (waiting longer each time) instead of giving up on global messages.
+			local delay = 2
+			while not localOnly do
+				local ok, problem = pcall(function()
+					return game:GetService("MessagingService"):SubscribeAsync(topic, function(message)
+						deliver(topic, message.Data)
+					end)
 				end)
-			end)
-			if not ok then
-				goLocal(problem)
+				if ok then
+					return
+				end
+				if RunService:IsStudio() then
+					goLocal(problem)
+					return
+				end
+				Errors.warnOnce(`global-subscribe:{topic}`, `Couldn't listen to the global topic "{topic}" yet; trying again.`, { tostring(problem) })
+				task.wait(delay)
+				delay = math.min(delay * 2, 60)
 			end
 		end)
 	end
@@ -488,7 +502,9 @@ local function valueOf(board: Board, player: Player): number?
 	return math.clamp(math.floor(value), -SAFE_INTEGER, SAFE_INTEGER)
 end
 
-local function writeScore(board: Board, player: Player)
+-- `final` is the last write before the player leaves: it isn't remembered, so
+-- servers that run for days don't keep an entry for everyone who ever joined.
+local function writeScore(board: Board, player: Player, final: boolean?)
 	if player.UserId <= 0 then
 		return -- Studio's test players
 	end
@@ -500,9 +516,9 @@ local function writeScore(board: Board, player: Player)
 		return
 	end
 	local ok, problem = pcall(store.SetAsync, store, key, value)
-	if ok then
+	if ok and not final then
 		board.Written[writtenKey] = value
-	else
+	elseif not ok then
 		Errors.warnOnce(`board-write:{board.Name}`, `Couldn't save a score for leaderboard "{board.Name}".`, { tostring(problem) })
 	end
 end
@@ -516,6 +532,12 @@ local function namesFor(userIds: { number })
 		end
 	end
 	if #missing > 0 then
+		-- Names only matter for the current tops, so start over before the cache grows big.
+		userNameCount += #missing
+		if userNameCount > MAX_CACHED_NAMES then
+			table.clear(userNames)
+			userNameCount = #missing
+		end
 		local ok, infos = pcall(function()
 			return game:GetService("UserService"):GetUserInfosByUserIdsAsync(missing)
 		end)
@@ -766,12 +788,20 @@ end
 function Global._playerLeaving(player: Player)
 	-- Their final scores, while their data is still loaded.
 	for _, board in boards do
-		task.spawn(writeScore, board, player)
+		task.spawn(writeScore, board, player, true)
 	end
 end
 
 function Global._playerRemoved(player: Player)
 	readyPlayers[player] = nil
+	local key = `:{player.UserId}`
+	for _, board in boards do
+		for writtenKey in board.Written do
+			if string.sub(writtenKey, -#key) == key then
+				board.Written[writtenKey] = nil
+			end
+		end
+	end
 end
 
 -- Client: started automatically when Corode loads on a player's device.

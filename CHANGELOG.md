@@ -6,8 +6,18 @@
 
 - K.Machine runs every machine from one shared loop instead of a thread per machine. Machines now tick at their exact `Tick` rate (before, they ran about 13% slow) and use less memory, so thousands of private machines are fine.
 
+### Added
+
+- `K.Value(name, { Replicate = "Owner" })` sends a value only to its own player instead of every client.
+
+### Fixed
+
+- A failed MessagingService subscription switched K.Global to this-server-only for good; live servers now keep retrying.
+- Leaderboard write caches and the leaderboard name cache grew with every player who ever joined a server.
+
 ### Project
 
+- A scale audit and a Running at scale page.
 - Two-player tests for teams, friendly fire, team rounds and admin levels, run on a local two-player server. Older tests no longer assume a single player who owns the game.
 
 ## 0.11.0 (2026-10-29)

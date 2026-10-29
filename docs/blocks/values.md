@@ -39,7 +39,7 @@ K.UI.Screen("XPBar", {
 | `Min`, `Max` | none | Numbers stay between them. `Take` fails instead of going below `Min`. |
 | `Integer` | `false` | Rounds to whole numbers. |
 | `Saved` | `true` | Saves with the player's data. |
-| `Replicate` | `true` | Every client can read it (like leaderstats). Turn it off for secret values. |
+| `Replicate` | `true` | Every client can read it (like leaderstats). `"Owner"`: only its own player gets it, which saves network traffic in big servers for values that change often. `false`: no client. |
 | `MaxLength` | `200` | The longest text allowed. |
 | `Validate` | none | `function(value, player) return ok, reason end`, your own rule for new values. |
 

@@ -81,6 +81,7 @@ export default defineConfig({
           items: [
             { text: 'Utilities', link: '/reference/utilities' },
             { text: 'Security checklist', link: '/reference/security' },
+            { text: 'Running at scale', link: '/reference/scaling' },
             { text: 'API reference', link: '/api/' },
             { text: 'Working on Corode', link: '/reference/contributing' },
           ],

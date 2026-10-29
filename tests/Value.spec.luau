@@ -237,6 +237,22 @@ return function(t)
 			expect(player:GetAttribute("CorodeValue_" .. xp.Name)).toBe(7)
 		end)
 
+		it("sends Replicate = \"Owner\" values only to their player", function()
+			local player = Helpers.player(t)
+			local private = value({ Replicate = "Owner" })
+			private:Set(player, 7)
+			-- Not an attribute (those reach everyone); just a constant marker.
+			expect(player:GetAttribute("CorodeValue_" .. private.Name)).toBeNil()
+			expect(player:GetAttribute("CorodeOwnerOnly_Value_" .. private.Name)).toBe(true)
+			expect(private:Get(player)).toBe(7)
+		end)
+
+		it("rejects other Replicate words", function()
+			expect(function()
+				value({ Replicate = "Friends" })
+			end).toThrow("Owner")
+		end)
+
 		it("keeps values with Replicate = false off the player", function()
 			local player = Helpers.player(t)
 			local secret = value({ Replicate = false })
