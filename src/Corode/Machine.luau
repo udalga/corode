@@ -42,6 +42,7 @@
 	return a state name to move on right away. Without a name,
 	K.Machine({ ... }) makes a private machine (for each door or NPC) that
 	clients don't see. Options: Initial, States, Tick (0.1 seconds).
+	All machines share one loop, so thousands of them are fine.
 ]]
 
 local RunService = game:GetService("RunService")
@@ -66,6 +67,11 @@ local Machine = {}
 
 local machines: { [string]: any } = {}
 local machineNames: { string } = {}
+-- Every running machine. One Heartbeat loop ticks them all, so thousands of
+-- machines don't each need a waiting thread, and each keeps its own Tick rate.
+local scheduled: { any } = {}
+local schedulerConnection: RBXScriptConnection? = nil
+local random = Random.new()
 
 local function call(machine, label: string, callback: any, ...: any): any
 	local ok, result = pcall(callback, machine, ...)
@@ -183,6 +189,44 @@ local function tick(machine)
 			machine._endsAt = false
 			replicate(machine)
 		end
+	end
+end
+
+local function step()
+	local now = os.clock()
+	local index = 1
+	while index <= #scheduled do
+		local machine = scheduled[index]
+		if machine._stopped then
+			-- Swap with the last one; the machine moved here is looked at next.
+			scheduled[index] = scheduled[#scheduled]
+			scheduled[#scheduled] = nil
+		else
+			-- _ticking skips a machine whose last tick is still waiting (a state that yields).
+			if now >= machine._nextTick and not machine._ticking then
+				machine._nextTick += machine._tickRate
+				if machine._nextTick < now then
+					machine._nextTick = now + machine._tickRate
+				end
+				machine._ticking = true
+				tick(machine)
+				machine._ticking = false
+			end
+			index += 1
+		end
+	end
+	if #scheduled == 0 and schedulerConnection then
+		schedulerConnection:Disconnect()
+		schedulerConnection = nil
+	end
+end
+
+local function schedule(machine)
+	-- A random first tick spreads machines made at the same moment over frames.
+	machine._nextTick = os.clock() + random:NextNumber() * machine._tickRate
+	table.insert(scheduled, machine)
+	if schedulerConnection == nil then
+		schedulerConnection = RunService.Heartbeat:Connect(step)
 	end
 end
 
@@ -338,6 +382,9 @@ local function create(name: string?, options: { [string]: any })
 		_pending = false :: any,
 		_moving = false,
 		_stopped = false,
+		_tickRate = tickRate,
+		_nextTick = 0,
+		_ticking = false,
 		_stateValue = false :: any,
 		_endsValue = false :: any,
 	}
@@ -348,12 +395,7 @@ local function create(name: string?, options: { [string]: any })
 	machine = Methods.build(machine, ServerMethods, `Machine "{machine.Name}"`)
 
 	go(machine, initial)
-	task.spawn(function()
-		while not machine._stopped do
-			task.wait(tickRate)
-			tick(machine)
-		end
-	end)
+	schedule(machine)
 	return machine
 end
 

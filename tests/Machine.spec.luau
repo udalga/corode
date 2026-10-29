@@ -174,6 +174,56 @@ return function(t)
 		end)
 	end)
 
+	describe("ticking", function()
+		it("runs Update at the machine's Tick rate", function()
+			local count = 0
+			machine({
+				Initial = "Idle",
+				Tick = 0.1,
+				States = { Idle = { Update = function()
+					count += 1
+				end } },
+			})
+			task.wait(1.05)
+			-- About 10; the first tick lands anywhere in the first 0.1 seconds.
+			expect(count >= 9 and count <= 11).toBe(true)
+		end)
+
+		it("stops updating a stopped machine", function()
+			local count = 0
+			local m = machine({
+				Initial = "Idle",
+				Tick = 0.05,
+				States = { Idle = { Update = function()
+					count += 1
+				end } },
+			})
+			task.wait(0.3)
+			m:Stop()
+			local stoppedAt = count
+			task.wait(0.3)
+			expect(stoppedAt > 0).toBe(true)
+			expect(count).toBe(stoppedAt)
+		end)
+
+		it("keeps many machines on time", function()
+			local count = 0
+			local many = {}
+			for index = 1, 500 do
+				many[index] = machine({
+					Initial = "Idle",
+					Tick = 0.1,
+					States = { Idle = { Update = function()
+						count += 1
+					end } },
+				})
+			end
+			task.wait(1.05)
+			-- 500 machines × about 10 ticks.
+			expect(count >= 4500 and count <= 5500).toBe(true)
+		end)
+	end)
+
 	describe("listening", function()
 		it("tells OnChanged, OnEnter and OnExit", function()
 			local log = {}

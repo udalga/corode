@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- K.Machine runs every machine from one shared loop instead of a thread per machine. Machines now tick at their exact `Tick` rate (before, they ran about 13% slow) and use less memory, so thousands of private machines are fine.
+
 ## 0.11.0 (2026-10-29)
 
 Corode now gives you building blocks to make your own systems, and its ready-made systems are built on or opened up with them.
